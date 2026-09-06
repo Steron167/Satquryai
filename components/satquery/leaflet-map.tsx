@@ -1,0 +1,687 @@
+"use client"
+
+import { useEffect, useRef, useState, useCallback } from "react"
+import L from "leaflet"
+import {
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  BoxSelect,
+  Eye,
+  EyeOff,
+  Sparkles,
+  Radar,
+  Layers,
+  Crosshair,
+  Droplets,
+  Sun,
+  ChevronRight,
+} from "lucide-react"
+import type { ViewerState, SelectedArea } from "./types"
+import type { SceneMeta, LayerId, DetectionBox } from "@/lib/satquery-data"
+
+interface LeafletMapProps {
+  state: ViewerState
+  scene: SceneMeta
+  onSelectArea?: (aoi: SelectedArea | null) => void
+  onAnalyzeArea?: (aoi: SelectedArea) => void
+  onLayerChange?: (layer: LayerId) => void
+  toolMode?: "navigate" | "select"
+  onToolModeChange?: (mode: "navigate" | "select") => void
+  showLabels?: boolean
+  onToggleLabels?: () => void
+  mapAction?: { type: "zoomIn" | "zoomOut" | "recenter"; id: number } | null
+  onZoomChange?: (zoom: number) => void
+  isLeftPanelOpen?: boolean
+  onToggleLeftPanel?: () => void
+}
+
+function parseCenter(scene: SceneMeta): [number, number] {
+  if (scene.bounds) {
+    const lat = (scene.bounds.north + scene.bounds.south) / 2
+    const lon = (scene.bounds.east + scene.bounds.west) / 2
+    if (!isNaN(lat) && !isNaN(lon)) return [lat, lon]
+  }
+  const latNum = parseFloat(scene.lat)
+  const lonNum = parseFloat(scene.lon)
+  if (!isNaN(latNum) && !isNaN(lonNum)) return [latNum, lonNum]
+  return [19.8824, 74.4789] // Default Kopargaon
+}
+
+export function LeafletMap({
+  state,
+  scene,
+  onSelectArea,
+  onAnalyzeArea,
+  onLayerChange,
+  toolMode: propToolMode,
+  onToolModeChange,
+  showLabels: propShowLabels,
+  onToggleLabels,
+  mapAction,
+  onZoomChange,
+  isLeftPanelOpen,
+  onToggleLeftPanel,
+}: LeafletMapProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<L.Map | null>(null)
+  const baseTileRef = useRef<L.TileLayer | null>(null)
+  const labelsLayerRef = useRef<L.TileLayer | null>(null)
+  const roadsLayerRef = useRef<L.TileLayer | null>(null)
+  const selectionRectRef = useRef<L.Rectangle | null>(null)
+  const detectionMarkersRef = useRef<L.LayerGroup | null>(null)
+  const floodLayerGroupRef = useRef<L.LayerGroup | null>(null)
+
+  const [internalToolMode, setInternalToolMode] = useState<"navigate" | "select">("navigate")
+  const activeToolMode = propToolMode !== undefined ? propToolMode : internalToolMode
+
+  const setToolMode = (mode: "navigate" | "select") => {
+    setInternalToolMode(mode)
+    onToolModeChange?.(mode)
+  }
+
+  const [internalShowLabels, setInternalShowLabels] = useState(true)
+  const activeShowLabels = propShowLabels !== undefined ? propShowLabels : internalShowLabels
+
+  const [zoomLevel, setZoomLevel] = useState(13)
+  const [cursorPos, setCursorPos] = useState<{ lat: number; lon: number } | null>(null)
+  const [selectedAOI, setSelectedAOI] = useState<SelectedArea | null>(state.selectedAOI || null)
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [dragStart, setDragStart] = useState<L.LatLng | null>(null)
+  const [radarThreshold, setRadarThreshold] = useState(-14)
+
+  // Initialize Leaflet Map
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return
+
+    const [initLat, initLon] = parseCenter(scene)
+
+    const map = L.map(containerRef.current, {
+      center: [initLat, initLon],
+      zoom: 13,
+      minZoom: 2,
+      maxZoom: 20,
+      zoomControl: false,
+      attributionControl: false,
+    })
+
+    // Dedicated high-priority pane for Google Maps-style labels (above tile and vector panes)
+    if (!map.getPane("labelsPane")) {
+      const labelsPane = map.createPane("labelsPane")
+      labelsPane.style.zIndex = "450"
+      labelsPane.style.pointerEvents = "none"
+    }
+
+    // Sub-meter Crisp Satellite Imagery (ESRI World Imagery - native resolution up to zoom 19)
+    const baseTiles = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      {
+        maxZoom: 20,
+        maxNativeZoom: 19,
+        attribution: "ESRI, Maxar, Earthstar Geographics",
+      }
+    ).addTo(map)
+    baseTileRef.current = baseTiles
+
+    // Google Maps-Style Hybrid Labels (CartoDB Voyager)
+    const labels = L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png",
+      {
+        subdomains: "abcd",
+        maxZoom: 20,
+        pane: "labelsPane",
+        opacity: 1,
+      }
+    )
+    labelsLayerRef.current = labels
+
+    // Highways & Major Transportation Overlay
+    const roads = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
+      {
+        maxZoom: 20,
+        pane: "labelsPane",
+        opacity: 0.85,
+      }
+    )
+    roadsLayerRef.current = roads
+
+    // Add labels by default
+    labels.addTo(map)
+    roads.addTo(map)
+
+    // Layer groups
+    const floodGroup = L.layerGroup().addTo(map)
+    floodLayerGroupRef.current = floodGroup
+
+    const detectionGroup = L.layerGroup().addTo(map)
+    detectionMarkersRef.current = detectionGroup
+
+    // Map Event Listeners
+    map.on("zoomend", () => {
+      const z = map.getZoom()
+      setZoomLevel(z)
+      onZoomChange?.(z)
+    })
+
+    map.on("mousemove", (e) => {
+      setCursorPos({
+        lat: Number(e.latlng.lat.toFixed(4)),
+        lon: Number(e.latlng.lng.toFixed(4)),
+      })
+    })
+
+    mapRef.current = map
+
+    return () => {
+      map.remove()
+      mapRef.current = null
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle external map actions (zoomIn, zoomOut, recenter) from top toolbar
+  useEffect(() => {
+    if (!mapAction || !mapRef.current) return
+    if (mapAction.type === "zoomIn") {
+      mapRef.current.zoomIn()
+    } else if (mapAction.type === "zoomOut") {
+      mapRef.current.zoomOut()
+    } else if (mapAction.type === "recenter") {
+      const [lat, lon] = parseCenter(scene)
+      mapRef.current.flyTo([lat, lon], 13.5, { duration: 1 })
+    }
+  }, [mapAction, scene])
+
+  // Handle Fly-To on Scene / Location Change
+  useEffect(() => {
+    if (!mapRef.current) return
+    const [targetLat, targetLon] = parseCenter(scene)
+    const currentCenter = mapRef.current.getCenter()
+    const dist = Math.hypot(currentCenter.lat - targetLat, currentCenter.lng - targetLon)
+    if (dist > 0.005) {
+      mapRef.current.flyTo([targetLat, targetLon], 13.5, { duration: 1.5 })
+    }
+  }, [scene])
+
+  // Multimodal Channel Rendering: Apply filter ONLY to base satellite tile pane
+  // This ensures labels and vectors in labelsPane / overlayPane stay 100% crisp and readable
+  useEffect(() => {
+    if (!mapRef.current) return
+    const tilePane = mapRef.current.getPane("tilePane")
+    if (!tilePane) return
+
+    let filterStyle = "none"
+    switch (state.layer) {
+      case "sar": {
+        const contrast = Math.round(220 + (radarThreshold + 14) * 8)
+        const brightness = Math.round(85 + (radarThreshold + 14) * 2)
+        filterStyle = `grayscale(100%) contrast(${contrast}%) brightness(${brightness}%)`
+        break
+      }
+      case "ndvi": {
+        filterStyle = "contrast(180%) saturate(260%) hue-rotate(50deg) brightness(95%)"
+        break
+      }
+      case "ndwi": {
+        filterStyle = "contrast(210%) saturate(230%) hue-rotate(185deg) brightness(90%)"
+        break
+      }
+      case "optical":
+      default: {
+        filterStyle = "none"
+        break
+      }
+    }
+
+    tilePane.style.filter = filterStyle
+    tilePane.style.transition = "filter 0.35s ease"
+  }, [state.layer, radarThreshold])
+
+  // Toggle Google Maps-Style Hybrid Labels
+  useEffect(() => {
+    if (!mapRef.current) return
+    if (activeShowLabels) {
+      if (labelsLayerRef.current && !mapRef.current.hasLayer(labelsLayerRef.current)) {
+        labelsLayerRef.current.addTo(mapRef.current)
+      }
+      if (roadsLayerRef.current && !mapRef.current.hasLayer(roadsLayerRef.current)) {
+        roadsLayerRef.current.addTo(mapRef.current)
+      }
+    } else {
+      if (labelsLayerRef.current && mapRef.current.hasLayer(labelsLayerRef.current)) {
+        mapRef.current.removeLayer(labelsLayerRef.current)
+      }
+      if (roadsLayerRef.current && mapRef.current.hasLayer(roadsLayerRef.current)) {
+        mapRef.current.removeLayer(roadsLayerRef.current)
+      }
+    }
+  }, [activeShowLabels])
+
+  // Sync AOI Selection state with parent
+  useEffect(() => {
+    setSelectedAOI(state.selectedAOI || null)
+  }, [state.selectedAOI])
+
+  // Render Selection Rectangle on Map
+  useEffect(() => {
+    if (!mapRef.current) return
+
+    if (selectionRectRef.current) {
+      selectionRectRef.current.remove()
+      selectionRectRef.current = null
+    }
+
+    if (selectedAOI?.bounds) {
+      const bounds = L.latLngBounds(
+        [selectedAOI.bounds.south, selectedAOI.bounds.west],
+        [selectedAOI.bounds.north, selectedAOI.bounds.east]
+      )
+
+      const rect = L.rectangle(bounds, {
+        color: "#06b6d4",
+        weight: 2.5,
+        fillColor: "#22d3ee",
+        fillOpacity: 0.22,
+        dashArray: "6, 6",
+      }).addTo(mapRef.current)
+
+      selectionRectRef.current = rect
+    }
+  }, [selectedAOI])
+
+  // Render SAR Flood Inundation Polygons (when state.flood is active)
+  useEffect(() => {
+    if (!mapRef.current || !floodLayerGroupRef.current) return
+    floodLayerGroupRef.current.clearLayers()
+
+    if (state.flood) {
+      const [centerLat, centerLon] = parseCenter(scene)
+      const floodPolygons = [
+        [
+          [centerLat + 0.008, centerLon - 0.025],
+          [centerLat + 0.012, centerLon - 0.010],
+          [centerLat + 0.006, centerLon + 0.015],
+          [centerLat - 0.002, centerLon + 0.030],
+          [centerLat - 0.008, centerLon + 0.018],
+          [centerLat - 0.003, centerLon - 0.005],
+          [centerLat + 0.002, centerLon - 0.022],
+        ],
+        [
+          [centerLat - 0.015, centerLon - 0.018],
+          [centerLat - 0.010, centerLon - 0.008],
+          [centerLat - 0.018, centerLon + 0.005],
+          [centerLat - 0.025, centerLon - 0.005],
+        ],
+      ]
+
+      floodPolygons.forEach((polyCoords, idx) => {
+        const poly = L.polygon(polyCoords as [number, number][], {
+          color: "#0284c7",
+          weight: 2.5,
+          fillColor: "#38bdf8",
+          fillOpacity: 0.42,
+          dashArray: "4, 4",
+        })
+
+        poly.bindTooltip(
+          `<div class="font-mono text-[10px] font-bold text-sky-200 bg-slate-950 px-2 py-1 rounded border border-sky-500/50 shadow-lg">
+            SAR Inundated Zone #${idx + 1}<br/>
+            <span class="text-[9px] text-sky-400 font-normal">Otsu &lt; -16.2 dB · Submerged Lowland</span>
+          </div>`,
+          { sticky: true, className: "satquery-tooltip" }
+        )
+
+        floodLayerGroupRef.current?.addLayer(poly)
+      })
+    }
+  }, [state.flood, scene])
+
+  // Render AI Object Grounding Bounding Boxes
+  useEffect(() => {
+    if (!mapRef.current || !detectionMarkersRef.current) return
+    detectionMarkersRef.current.clearLayers()
+
+    if (state.detections && state.dynamicBoxes && state.dynamicBoxes.length > 0) {
+      const activeBounds = selectedAOI?.bounds || scene.bounds || {
+        north: parseCenter(scene)[0] + 0.04,
+        south: parseCenter(scene)[0] - 0.04,
+        east: parseCenter(scene)[1] + 0.04,
+        west: parseCenter(scene)[1] - 0.04,
+      }
+
+      const latSpan = activeBounds.north - activeBounds.south
+      const lonSpan = activeBounds.east - activeBounds.west
+
+      state.dynamicBoxes.forEach((box: DetectionBox) => {
+        const boxNorth = activeBounds.north - (box.ymin / 100) * latSpan
+        const boxSouth = activeBounds.north - (box.ymax / 100) * latSpan
+        const boxWest = activeBounds.west + (box.xmin / 100) * lonSpan
+        const boxEast = activeBounds.west + (box.xmax / 100) * lonSpan
+
+        const rectBounds = L.latLngBounds([boxSouth, boxWest], [boxNorth, boxEast])
+        const rect = L.rectangle(rectBounds, {
+          color: "#f59e0b",
+          weight: 2,
+          fillColor: "#fbbf24",
+          fillOpacity: 0.18,
+        })
+
+        rect.bindTooltip(
+          `<div class="font-mono text-[10px] font-bold text-amber-300 bg-slate-950 px-1.5 py-0.5 rounded border border-amber-500/40">${box.label} (${Math.round(
+            box.conf * 100
+          )}%)</div>`,
+          { permanent: false, direction: "top", className: "satquery-tooltip" }
+        )
+
+        detectionMarkersRef.current?.addLayer(rect)
+      })
+    }
+  }, [state.detections, state.dynamicBoxes, selectedAOI, scene])
+
+  // ROI Mouse Drag Handlers
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (activeToolMode !== "select" || !mapRef.current) return
+      const map = mapRef.current
+      const latlng = map.mouseEventToLatLng(e.nativeEvent)
+      setIsDrawing(true)
+      setDragStart(latlng)
+      map.dragging.disable()
+    },
+    [activeToolMode]
+  )
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isDrawing || !dragStart || !mapRef.current) return
+      const map = mapRef.current
+      const currentLatLng = map.mouseEventToLatLng(e.nativeEvent)
+      const bounds = L.latLngBounds(dragStart, currentLatLng)
+
+      if (selectionRectRef.current) {
+        selectionRectRef.current.setBounds(bounds)
+      } else {
+        selectionRectRef.current = L.rectangle(bounds, {
+          color: "#06b6d4",
+          weight: 2.5,
+          fillColor: "#22d3ee",
+          fillOpacity: 0.22,
+          dashArray: "6, 6",
+        }).addTo(map)
+      }
+    },
+    [isDrawing, dragStart]
+  )
+
+  const handleMouseUp = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isDrawing || !dragStart || !mapRef.current) return
+      const map = mapRef.current
+      const currentLatLng = map.mouseEventToLatLng(e.nativeEvent)
+
+      const north = Math.max(dragStart.lat, currentLatLng.lat)
+      const south = Math.min(dragStart.lat, currentLatLng.lat)
+      const east = Math.max(dragStart.lng, currentLatLng.lng)
+      const west = Math.min(dragStart.lng, currentLatLng.lng)
+
+      // Geodesic area calculation in km²
+      const latDist = Math.abs(north - south) * 111.32
+      const lonDist = Math.abs(east - west) * 111.32 * Math.cos((((north + south) / 2) * Math.PI) / 180)
+      const areaKm2 = Number(Math.max(0.01, latDist * lonDist).toFixed(2))
+
+      const aoi: SelectedArea = {
+        xmin: 20,
+        ymin: 20,
+        xmax: 80,
+        ymax: 80,
+        bounds: { north, south, east, west },
+        areaKm2,
+      }
+
+      setSelectedAOI(aoi)
+      if (onSelectArea) onSelectArea(aoi)
+
+      setIsDrawing(false)
+      setDragStart(null)
+      map.dragging.enable()
+      setToolMode("navigate")
+    },
+    [isDrawing, dragStart, onSelectArea]
+  )
+
+  const handleClearAOI = useCallback(() => {
+    setSelectedAOI(null)
+    if (selectionRectRef.current) {
+      selectionRectRef.current.remove()
+      selectionRectRef.current = null
+    }
+    if (onSelectArea) onSelectArea(null)
+  }, [onSelectArea])
+
+  return (
+    <div
+      className={`relative h-full w-full overflow-hidden select-none bg-slate-950 ${
+        activeToolMode === "select" ? "cursor-crosshair" : ""
+      }`}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+    >
+      {/* Leaflet Map Canvas */}
+      <div ref={containerRef} className="h-full w-full" />
+
+      {/* Floating Left Panel Opener Tab (when sidebar is hidden) */}
+      {!isLeftPanelOpen && onToggleLeftPanel && (
+        <button
+          type="button"
+          onClick={onToggleLeftPanel}
+          className="pointer-events-auto absolute left-0 top-1/2 -translate-y-1/2 z-[1000] flex flex-col items-center gap-1 rounded-r-lg border border-border border-l-0 bg-card/95 py-3 px-1.5 text-xs font-bold text-foreground shadow-2xl backdrop-blur-md hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer group"
+          title="Open Operational Scenes & Locations Panel"
+        >
+          <ChevronRight className="size-4 text-primary group-hover:text-primary-foreground group-hover:translate-x-0.5 transition-transform" />
+          <span className="[writing-mode:vertical-lr] font-mono text-[9px] tracking-wider uppercase text-muted-foreground group-hover:text-primary-foreground py-1">
+            Scenes
+          </span>
+        </button>
+      )}
+
+      {/* Selected AOI Floating Action Banner (Top Center) */}
+      {selectedAOI && (
+        <div className="pointer-events-auto absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 rounded-xl border border-cyan-500/80 bg-slate-950/95 px-3 py-1.5 text-cyan-300 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2">
+          <span className="size-2 rounded-full bg-cyan-400 animate-ping" />
+          <span className="font-semibold text-xs font-mono">
+            Selected Sub-Region: ~{selectedAOI.areaKm2} km²
+          </span>
+          {onAnalyzeArea && (
+            <button
+              type="button"
+              onClick={() => onAnalyzeArea(selectedAOI)}
+              className="ml-1 flex items-center gap-1 rounded-lg bg-cyan-500 px-2.5 py-1 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition-all shadow-md cursor-pointer"
+            >
+              <Sparkles className="size-3" />
+              <span>Analyze with Gemini</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleClearAOI}
+            className="ml-1 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-slate-800 transition-colors cursor-pointer text-xs"
+            title="Clear Area Selection"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Google Maps-Style Vertical Zoom & Recenter Navigation Widget (Bottom Right) */}
+      <div className="pointer-events-auto absolute right-3 bottom-14 z-[1000] flex flex-col items-center rounded-xl border border-border/80 bg-background/95 p-1 shadow-2xl backdrop-blur-md divide-y divide-border/60">
+        <button
+          type="button"
+          onClick={() => mapRef.current?.zoomIn()}
+          className="rounded-lg p-2 text-foreground hover:bg-secondary transition-all active:scale-90 cursor-pointer"
+          title="Zoom In (+)"
+        >
+          <ZoomIn className="size-4" />
+        </button>
+        <div className="py-1 px-1 font-mono text-[10px] font-bold text-primary text-center select-none">
+          {zoomLevel}x
+        </div>
+        <button
+          type="button"
+          onClick={() => mapRef.current?.zoomOut()}
+          className="rounded-lg p-2 text-foreground hover:bg-secondary transition-all active:scale-90 cursor-pointer"
+          title="Zoom Out (-)"
+        >
+          <ZoomOut className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const [lat, lon] = parseCenter(scene)
+            mapRef.current?.flyTo([lat, lon], 13.5, { duration: 1 })
+          }}
+          className="rounded-lg p-2 text-foreground hover:bg-secondary transition-all active:scale-90 cursor-pointer"
+          title="Recenter Map View (⌖)"
+        >
+          <RotateCcw className="size-3.5 text-muted-foreground hover:text-foreground" />
+        </button>
+      </div>
+
+      {/* Real-time Analytical Legend: SAR Microwave Radar */}
+      {state.layer === "sar" && (
+        <div className="pointer-events-auto absolute bottom-14 left-3 z-[1000] flex flex-col gap-1.5 rounded-xl border border-cyan-500/40 bg-slate-950/95 p-3 text-xs text-cyan-200 shadow-2xl backdrop-blur-md max-w-xs animate-in fade-in slide-in-from-bottom-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 font-bold text-[11px]">
+              <Radar className="size-4 text-cyan-400 animate-pulse" />
+              <span>SAR Radar Backscatter (σ°)</span>
+            </div>
+            <span className="font-mono text-[11px] font-semibold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-500/30">
+              {radarThreshold} dB
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            C-band 5.405 GHz microwave radar penetrates clouds. Specular water bodies appear pitch dark; double-bounce urban structures appear bright white.
+          </p>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-[9px] font-mono text-muted-foreground">-24dB</span>
+            <input
+              type="range"
+              min="-24"
+              max="-6"
+              value={radarThreshold}
+              onChange={(e) => setRadarThreshold(Number(e.target.value))}
+              aria-label="SAR sigma-0 sensitivity threshold slider"
+              className="h-1.5 flex-1 cursor-pointer accent-cyan-400 bg-cyan-950 rounded-lg"
+            />
+            <span className="text-[9px] font-mono text-muted-foreground">-6dB</span>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Analytical Legend: NDVI Crop Vigor */}
+      {state.layer === "ndvi" && (
+        <div className="pointer-events-auto absolute bottom-14 left-3 z-[1000] flex flex-col gap-1.5 rounded-xl border border-emerald-500/40 bg-slate-950/95 p-3 text-xs text-emerald-200 shadow-2xl backdrop-blur-md max-w-xs animate-in fade-in slide-in-from-bottom-2">
+          <div className="flex items-center gap-1.5 font-bold text-[11px]">
+            <Sparkles className="size-4 text-emerald-400" />
+            <span>NDVI Vegetation Vigor Ramp</span>
+          </div>
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            Near-Infrared / Red band ratio (B8 - B4)/(B8 + B4). Distinguishes crop health, biomass density, and photosynthetic activity.
+          </p>
+          {/* NDVI Spectral Ramp Bar */}
+          <div className="mt-1 h-3 w-full rounded overflow-hidden flex shadow-inner border border-emerald-500/30">
+            <div className="w-1/4 bg-amber-900" title="Water / Built-up (< 0.1)" />
+            <div className="w-1/4 bg-amber-500" title="Bare Soil / Fallow (0.1 - 0.3)" />
+            <div className="w-1/4 bg-lime-400" title="Sparse Vegetation (0.3 - 0.5)" />
+            <div className="w-1/4 bg-emerald-600" title="Dense Canopy / Crops (> 0.6)" />
+          </div>
+          <div className="flex justify-between font-mono text-[9px] text-muted-foreground">
+            <span>0.0 (Soil)</span>
+            <span>0.3 (Sparse)</span>
+            <span>0.5 (Moderate)</span>
+            <span>0.8+ (Dense)</span>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Analytical Legend: NDWI Water / Flood Index */}
+      {state.layer === "ndwi" && (
+        <div className="pointer-events-auto absolute bottom-14 left-3 z-[1000] flex flex-col gap-1.5 rounded-xl border border-blue-500/40 bg-slate-950/95 p-3 text-xs text-blue-200 shadow-2xl backdrop-blur-md max-w-xs animate-in fade-in slide-in-from-bottom-2">
+          <div className="flex items-center gap-1.5 font-bold text-[11px]">
+            <Droplets className="size-4 text-cyan-400" />
+            <span>NDWI Hydrologic & Flood Mapping</span>
+          </div>
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            Green / Near-Infrared band ratio (B3 - B8)/(B3 + B8). Enhances open water bodies, rivers, and flood inundation in electric cyan while muting background soil.
+          </p>
+        </div>
+      )}
+
+      {/* Layer Quick-Switch Pills (Bottom Right) */}
+      <div className="pointer-events-auto absolute bottom-3 right-3 z-[1000] flex items-center gap-1 rounded-xl border border-border/80 bg-background/95 p-1 shadow-2xl backdrop-blur-md">
+        <button
+          type="button"
+          onClick={() => onLayerChange?.("optical")}
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
+            state.layer === "optical"
+              ? "bg-amber-500 text-slate-950 shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          }`}
+          title="Optical True-Color High-Res Satellite View"
+        >
+          <Sun className="size-3" />
+          <span className="hidden sm:inline">Optical</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onLayerChange?.("sar")}
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
+            state.layer === "sar"
+              ? "bg-cyan-500 text-slate-950 shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          }`}
+          title="Sentinel-1 Microwave Radar (SAR)"
+        >
+          <Radar className="size-3" />
+          <span className="hidden sm:inline">SAR</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onLayerChange?.("ndvi")}
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
+            state.layer === "ndvi"
+              ? "bg-emerald-500 text-slate-950 shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          }`}
+          title="NDVI Crop & Vegetation Vigor"
+        >
+          <Sparkles className="size-3" />
+          <span className="hidden sm:inline">NDVI</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onLayerChange?.("ndwi")}
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
+            state.layer === "ndwi"
+              ? "bg-blue-500 text-slate-950 shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          }`}
+          title="NDWI Hydrologic Water / Flood Index"
+        >
+          <Droplets className="size-3" />
+          <span className="hidden sm:inline">NDWI</span>
+        </button>
+      </div>
+
+      {/* Coordinate & Zoom HUD (Bottom Left) */}
+      <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] hidden sm:flex items-center gap-2 rounded-xl border border-border/80 bg-background/90 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-xl backdrop-blur-md">
+        <Crosshair className="size-3 text-primary" />
+        <span>
+          {cursorPos ? `${cursorPos.lat}° N, ${cursorPos.lon}° E` : `${scene.lat}, ${scene.lon}`}
+        </span>
+        <span className="text-border font-light">|</span>
+        <span className="text-foreground font-semibold">Zoom {zoomLevel} (Sub-meter sharp)</span>
+      </div>
+    </div>
+  )
+}
