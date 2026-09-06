@@ -44,6 +44,7 @@ interface ImageViewerProps {
   isLeftPanelOpen?: boolean
   onToggleLeftPanel?: () => void
   onLayerChange?: (layer: LayerId) => void
+  onToggleFlood?: () => void
 }
 
 export function ImageViewer({
@@ -55,6 +56,7 @@ export function ImageViewer({
   isLeftPanelOpen,
   onToggleLeftPanel,
   onLayerChange,
+  onToggleFlood,
 }: ImageViewerProps) {
   // Mode & navigation states
   const [toolMode, setToolMode] = useState<"navigate" | "select">("navigate")
@@ -352,6 +354,7 @@ export function ImageViewer({
           onZoomChange={setCurrentZoom}
           isLeftPanelOpen={isLeftPanelOpen}
           onToggleLeftPanel={onToggleLeftPanel}
+          onToggleFlood={onToggleFlood}
         />
       </div>
     </div>

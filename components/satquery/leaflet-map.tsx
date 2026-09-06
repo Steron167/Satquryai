@@ -34,6 +34,7 @@ interface LeafletMapProps {
   onZoomChange?: (zoom: number) => void
   isLeftPanelOpen?: boolean
   onToggleLeftPanel?: () => void
+  onToggleFlood?: () => void
 }
 
 function parseCenter(scene: SceneMeta): [number, number] {
@@ -62,6 +63,7 @@ export function LeafletMap({
   onZoomChange,
   isLeftPanelOpen,
   onToggleLeftPanel,
+  onToggleFlood,
 }: LeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -290,6 +292,7 @@ export function LeafletMap({
   }, [selectedAOI])
 
   // Render SAR Flood Inundation Polygons (when state.flood is active)
+  // Render SAR Flood Inundation Polygons (when state.flood is active)
   useEffect(() => {
     if (!mapRef.current || !floodLayerGroupRef.current) return
     floodLayerGroupRef.current.clearLayers()
@@ -314,25 +317,33 @@ export function LeafletMap({
         ],
       ]
 
+      const allCoords: [number, number][] = []
+
       floodPolygons.forEach((polyCoords, idx) => {
+        allCoords.push(...(polyCoords as [number, number][]))
         const poly = L.polygon(polyCoords as [number, number][], {
           color: "#0284c7",
           weight: 2.5,
           fillColor: "#38bdf8",
-          fillOpacity: 0.42,
+          fillOpacity: 0.45,
           dashArray: "4, 4",
         })
 
         poly.bindTooltip(
-          `<div class="font-mono text-[10px] font-bold text-sky-200 bg-slate-950 px-2 py-1 rounded border border-sky-500/50 shadow-lg">
-            SAR Inundated Zone #${idx + 1}<br/>
-            <span class="text-[9px] text-sky-400 font-normal">Otsu &lt; -16.2 dB · Submerged Lowland</span>
+          `<div class="font-mono text-[10px] font-bold text-sky-200 bg-slate-950/95 px-2 py-1 rounded border border-sky-400/80 shadow-xl backdrop-blur-sm">
+            🌊 SAR Inundated Zone #${idx + 1}<br/>
+            <span class="text-[9px] text-sky-300 font-normal">Otsu &lt; -16.2 dB · Submerged Lowland</span>
           </div>`,
-          { sticky: true, className: "satquery-tooltip" }
+          { permanent: true, direction: "center", className: "satquery-tooltip" }
         )
 
         floodLayerGroupRef.current?.addLayer(poly)
       })
+
+      if (allCoords.length > 0 && mapRef.current) {
+        const groupBounds = L.latLngBounds(allCoords)
+        mapRef.current.flyToBounds(groupBounds.pad(0.2), { duration: 1.2, maxZoom: 16 })
+      }
     }
   }, [state.flood, scene])
 
@@ -352,6 +363,8 @@ export function LeafletMap({
       const latSpan = activeBounds.north - activeBounds.south
       const lonSpan = activeBounds.east - activeBounds.west
 
+      const allBoxBounds: L.LatLngBounds[] = []
+
       state.dynamicBoxes.forEach((box: DetectionBox) => {
         const boxNorth = activeBounds.north - (box.ymin / 100) * latSpan
         const boxSouth = activeBounds.north - (box.ymax / 100) * latSpan
@@ -359,24 +372,52 @@ export function LeafletMap({
         const boxEast = activeBounds.west + (box.xmax / 100) * lonSpan
 
         const rectBounds = L.latLngBounds([boxSouth, boxWest], [boxNorth, boxEast])
+        allBoxBounds.push(rectBounds)
+
+        const labelLower = box.label.toLowerCase()
+        const isFlood = labelLower.includes("flood") || labelLower.includes("inundat") || labelLower.includes("submerg")
+        const isWater = !isFlood && (labelLower.includes("water") || labelLower.includes("river") || labelLower.includes("canal") || labelLower.includes("drainage"))
+        const isVeg = labelLower.includes("crop") || labelLower.includes("vegetat") || labelLower.includes("canopy") || labelLower.includes("paddy") || labelLower.includes("forest") || labelLower.includes("farm")
+
+        const strokeColor = isFlood ? "#0284c7" : isWater ? "#06b6d4" : isVeg ? "#16a34a" : "#f59e0b"
+        const fillColor = isFlood ? "#38bdf8" : isWater ? "#22d3ee" : isVeg ? "#4ade80" : "#fbbf24"
+        const borderClass = isFlood
+          ? "border-sky-500 text-sky-200"
+          : isWater
+          ? "border-cyan-500 text-cyan-200"
+          : isVeg
+          ? "border-emerald-500 text-emerald-200"
+          : "border-amber-500 text-amber-300"
+        const iconPrefix = isFlood ? "🌊 " : isWater ? "💧 " : isVeg ? "🌱 " : "🏢 "
+
         const rect = L.rectangle(rectBounds, {
-          color: "#f59e0b",
-          weight: 2,
-          fillColor: "#fbbf24",
-          fillOpacity: 0.18,
+          color: strokeColor,
+          weight: 2.2,
+          fillColor: fillColor,
+          fillOpacity: 0.22,
+          dashArray: isFlood ? "4, 4" : undefined,
         })
 
         rect.bindTooltip(
-          `<div class="font-mono text-[10px] font-bold text-amber-300 bg-slate-950 px-1.5 py-0.5 rounded border border-amber-500/40">${box.label} (${Math.round(
-            box.conf * 100
-          )}%)</div>`,
-          { permanent: false, direction: "top", className: "satquery-tooltip" }
+          `<div class="font-mono text-[10px] font-bold ${borderClass} bg-slate-950/95 px-2 py-0.5 rounded border shadow-xl backdrop-blur-sm whitespace-nowrap">
+            ${iconPrefix}${box.label} <span class="opacity-80 font-normal">(${Math.round(box.conf * 100)}%)</span>
+          </div>`,
+          { permanent: true, direction: "top", className: "satquery-tooltip" }
         )
 
         detectionMarkersRef.current?.addLayer(rect)
       })
+
+      // If user hasn't explicitly selected an AOI, fly to show all detected boxes smoothly
+      if (!selectedAOI && allBoxBounds.length > 0 && mapRef.current && !state.flood) {
+        let combinedBounds = allBoxBounds[0]
+        for (let i = 1; i < allBoxBounds.length; i++) {
+          combinedBounds = combinedBounds.extend(allBoxBounds[i])
+        }
+        mapRef.current.flyToBounds(combinedBounds.pad(0.2), { duration: 1.2, maxZoom: 16 })
+      }
     }
-  }, [state.detections, state.dynamicBoxes, selectedAOI, scene])
+  }, [state.detections, state.dynamicBoxes, selectedAOI, scene, state.flood])
 
   // ROI Mouse Drag Handlers
   const handleMouseDown = useCallback(
@@ -510,6 +551,32 @@ export function LeafletMap({
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Real-Time Flood Inundation Alert Banner (Top Center) */}
+      {state.flood && (
+        <div
+          className={`pointer-events-auto absolute left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 rounded-full border border-sky-400/80 bg-slate-950/95 px-3.5 py-1.5 text-xs text-sky-200 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 ${
+            selectedAOI ? "top-14" : "top-3"
+          }`}
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
+          </span>
+          <span className="font-semibold text-xs tracking-wide">🌊 SAR Flood Inundation Overlay Active</span>
+          <span className="text-[10px] text-sky-400 font-mono hidden sm:inline">| Otsu &lt; -16dB Backscatter Mapped</span>
+          {onToggleFlood && (
+            <button
+              type="button"
+              onClick={onToggleFlood}
+              className="ml-1 rounded-full p-0.5 hover:bg-sky-500/20 text-sky-300 hover:text-white transition-colors cursor-pointer text-xs leading-none"
+              title="Dismiss flood overlay"
+            >
+              ✕
+            </button>
+          )}
         </div>
       )}
 

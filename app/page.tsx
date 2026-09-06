@@ -324,16 +324,40 @@ export default function Page() {
         response = matchQuery(text, selectedSceneId, activeAOI, isCustomSceneActive ? activeScene : undefined)
       }
 
-      if (response.effect) {
-        setViewer((prev) => ({
-          ...prev,
-          layer: response.effect?.layer ?? prev.layer,
-          detections: response.effect?.detections ?? false,
-          flood: response.effect?.flood ?? false,
-          compare: response.effect?.compare ?? false,
-          dynamicBoxes: response.boundingBoxes || response.effect?.boundingBoxes || [],
-        }))
-      }
+      const queryLower = text.toLowerCase()
+      const isFloodQuery =
+        queryLower.includes("flood") ||
+        queryLower.includes("inundat") ||
+        queryLower.includes("submerg") ||
+        queryLower.includes("waterlog")
+
+      const isWaterQuery =
+        !isFloodQuery &&
+        (queryLower.includes("water") || queryLower.includes("river") || queryLower.includes("lake") || queryLower.includes("canal"))
+
+      const isCropQuery =
+        queryLower.includes("crop") || queryLower.includes("farm") || queryLower.includes("vegetat") || queryLower.includes("ndvi")
+
+      const isUrbanQuery =
+        queryLower.includes("build") || queryLower.includes("urban") || queryLower.includes("settle") || queryLower.includes("structure")
+
+      const shouldEnableFlood = isFloodQuery || Boolean(response.effect?.flood)
+      const shouldEnableDetections =
+        Boolean(response.boundingBoxes && response.boundingBoxes.length > 0) ||
+        Boolean(response.effect?.detections) ||
+        isUrbanQuery ||
+        isCropQuery ||
+        isWaterQuery ||
+        isFloodQuery
+
+      setViewer((prev) => ({
+        ...prev,
+        layer: response.effect?.layer || (isFloodQuery ? "sar" : isWaterQuery ? "ndwi" : isCropQuery ? "ndvi" : prev.layer),
+        detections: shouldEnableDetections,
+        flood: shouldEnableFlood,
+        compare: response.effect?.compare ?? false,
+        dynamicBoxes: response.boundingBoxes || response.effect?.boundingBoxes || prev.dynamicBoxes,
+      }))
 
       setMessages((prev) => [
         ...prev,
@@ -413,6 +437,7 @@ export default function Page() {
             isLeftPanelOpen={isLeftPanelOpen}
             onToggleLeftPanel={() => setIsLeftPanelOpen((prev) => !prev)}
             onLayerChange={handleLayerChange}
+            onToggleFlood={() => setViewer((prev) => ({ ...prev, flood: !prev.flood }))}
           />
         </div>
 

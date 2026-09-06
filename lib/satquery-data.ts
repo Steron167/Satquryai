@@ -619,6 +619,11 @@ export function matchQuery(
   // Intent: Floods / Water / Inundation
   if (q.includes("flood") || q.includes("water") || q.includes("inundat") || q.includes("submerg") || q.includes("river") || q.includes("drainage")) {
     const floodKm = sceneId === "brahmaputra" ? "142.8 km²" : sceneId === "godavari" ? "41.2 km²" : "28.5 km²"
+    const floodBoxes: DetectionBox[] = [
+      { id: "f1", ymin: 30, xmin: 16, ymax: 52, xmax: 46, label: "SAR Inundated Zone (Otsu < -16dB)", conf: 0.96, category: "water" },
+      { id: "f2", ymin: 48, xmin: 42, ymax: 66, xmax: 74, label: "Submerged Agricultural Lowland", conf: 0.92, category: "water" },
+      { id: "f3", ymin: 18, xmin: 46, ymax: 36, xmax: 78, label: "Waterlogged Drainage Channel", conf: 0.89, category: "water" },
+    ]
     return {
       text: `SAR flood analysis for ${scene.name} (${scene.region}). C-band radar backscatter isolates smooth water surfaces regardless of cloud cover. Estimated inundation is ${floodKm} along low-lying drainage depressions.`,
       card: {
@@ -626,7 +631,8 @@ export function matchQuery(
         title: `SAR Water & Inundation Mapping · ${scene.name}`,
         floodArea: floodKm,
       },
-      effect: { layer: "sar", flood: true, detections: false, compare: false },
+      effect: { layer: "sar", flood: true, detections: true, compare: false, boundingBoxes: floodBoxes },
+      boundingBoxes: floodBoxes,
       sources: ["Sentinel-1 GRD CSAR", "Otsu Sigma-0 Thresholding", "ISRO-Bhuvan"],
     }
   }
