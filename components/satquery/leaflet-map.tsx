@@ -100,7 +100,7 @@ export function LeafletMap({
       center: [initLat, initLon],
       zoom: 13,
       minZoom: 2,
-      maxZoom: 20,
+      maxZoom: 18,
       zoomControl: false,
       attributionControl: false,
     })
@@ -112,12 +112,12 @@ export function LeafletMap({
       labelsPane.style.pointerEvents = "none"
     }
 
-    // Sub-meter Crisp Satellite Imagery (ESRI World Imagery - native resolution up to zoom 19)
+    // Sub-meter Crisp Satellite Imagery (ESRI World Imagery - capped at zoom 18 to avoid 'map unavailable')
     const baseTiles = L.tileLayer(
       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       {
-        maxZoom: 20,
-        maxNativeZoom: 19,
+        maxZoom: 18,
+        maxNativeZoom: 18,
         attribution: "ESRI, Maxar, Earthstar Geographics",
       }
     ).addTo(map)
@@ -128,7 +128,7 @@ export function LeafletMap({
       "https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png",
       {
         subdomains: "abcd",
-        maxZoom: 20,
+        maxZoom: 18,
         pane: "labelsPane",
         opacity: 1,
       }
@@ -139,7 +139,7 @@ export function LeafletMap({
     const roads = L.tileLayer(
       "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
       {
-        maxZoom: 20,
+        maxZoom: 18,
         pane: "labelsPane",
         opacity: 0.85,
       }
@@ -518,8 +518,9 @@ export function LeafletMap({
         <button
           type="button"
           onClick={() => mapRef.current?.zoomIn()}
-          className="rounded-lg p-2 text-foreground hover:bg-secondary transition-all active:scale-90 cursor-pointer"
-          title="Zoom In (+)"
+          disabled={zoomLevel >= 18}
+          className="rounded-lg p-2 text-foreground hover:bg-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-90 cursor-pointer"
+          title={zoomLevel >= 18 ? "Maximum Resolution Reached (18x)" : "Zoom In (+)"}
         >
           <ZoomIn className="size-4" />
         </button>
@@ -529,8 +530,9 @@ export function LeafletMap({
         <button
           type="button"
           onClick={() => mapRef.current?.zoomOut()}
-          className="rounded-lg p-2 text-foreground hover:bg-secondary transition-all active:scale-90 cursor-pointer"
-          title="Zoom Out (-)"
+          disabled={zoomLevel <= 2}
+          className="rounded-lg p-2 text-foreground hover:bg-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-90 cursor-pointer"
+          title={zoomLevel <= 2 ? "Minimum Zoom" : "Zoom Out (-)"}
         >
           <ZoomOut className="size-4" />
         </button>

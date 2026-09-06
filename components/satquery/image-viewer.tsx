@@ -306,8 +306,9 @@ export function ImageViewer({
             <button
               type="button"
               onClick={() => setMapAction({ type: "zoomOut", id: Date.now() })}
-              className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
-              title="Zoom Out (-)"
+              disabled={currentZoom <= 2}
+              className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              title={currentZoom <= 2 ? "Minimum Zoom" : "Zoom Out (-)"}
             >
               <ZoomOut className="size-3.5" />
             </button>
@@ -317,8 +318,9 @@ export function ImageViewer({
             <button
               type="button"
               onClick={() => setMapAction({ type: "zoomIn", id: Date.now() })}
-              className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
-              title="Zoom In (+)"
+              disabled={currentZoom >= 18}
+              className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              title={currentZoom >= 18 ? "Maximum Resolution Reached (18x)" : "Zoom In (+)"}
             >
               <ZoomIn className="size-3.5" />
             </button>
