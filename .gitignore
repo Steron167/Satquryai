@@ -40,5 +40,9 @@ __v0_runtime_loader.js
 __v0_devtools.tsx
 __v0_jsx-dev-runtime.ts
 
-# PDF Documents
+# PDF & Presentation Documents
 *.pdf
+*.pptx
+
+# Python Virtual Environment
+.venv/
