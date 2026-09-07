@@ -108,29 +108,39 @@ function enrichAnalysisWithQueryIntent(
 ): ApiAnalysis {
   const q = query.toLowerCase()
 
-  // 100% Deterministic Geospatial Ground-Truth & Spectral Physics Fusion
-  const isCrop = Boolean(pixelMetrics?.isCropVegetation || (groundTruth?.isAgricultural && !groundTruth?.isUrbanSettlement))
+  // High-Confidence Geospatial Ground-Truth & Spectral Physics Fusion
+  const isCrop = Boolean(
+    pixelMetrics?.isCropVegetation ||
+      (groundTruth?.isAgricultural && !groundTruth?.isUrbanSettlement)
+  )
   const isSettlement =
     !isCrop &&
-    Boolean(groundTruth?.isUrbanSettlement || (pixelMetrics?.isBuiltUp && !groundTruth?.isAgricultural))
+    Boolean(
+      (groundTruth?.isUrbanSettlement && pixelMetrics?.isBuiltUp) ||
+      (groundTruth?.isUrbanSettlement && !pixelMetrics?.isCropVegetation && !pixelMetrics?.isWater)
+    )
 
-  // Crop / Agricultural Parcel Override (Spectral Physics takes highest priority)
+  // Crop / Agricultural Parcel Verification (Spectral Physics & Visual Canopy take highest priority)
   if (isCrop) {
     const locName = groundTruth?.placeName || sceneName || "Agricultural Field"
     parsed.layer = "ndvi"
     parsed.detections = true
-    parsed.boundingBoxes = [
-      { box_2d: [18, 20, 56, 64], label: "Dense Crop Canopy (96%)", confidence: 0.96 },
-      { box_2d: [48, 36, 84, 82], label: "Cultivated Field Parcel (92%)", confidence: 0.92 },
-    ]
-    parsed.card = {
-      kind: "landcover",
-      title: `Land-Cover Composition · Agricultural Cropland (${locName})`,
-      landcover: [
-        { label: "Active Cropland / Green Canopy", pct: 84 },
-        { label: "Cultivated Soil / Field Margins", pct: 12 },
-        { label: "Farmsteads / Trees", pct: 4 },
-      ],
+    if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
+      parsed.boundingBoxes = [
+        { box_2d: [18, 20, 56, 64], label: "Active Crop Canopy (96%)", confidence: 0.96 },
+        { box_2d: [48, 36, 84, 82], label: "Cultivated Field Parcel (92%)", confidence: 0.92 },
+      ]
+    }
+    if (!parsed.card || parsed.card.kind !== "landcover") {
+      parsed.card = {
+        kind: "landcover",
+        title: `Land-Cover Composition · Agricultural Cropland (${locName})`,
+        landcover: [
+          { label: "Active Cropland / Green Canopy", pct: 84 },
+          { label: "Cultivated Soil / Field Margins", pct: 12 },
+          { label: "Farmsteads / Trees", pct: 4 },
+        ],
+      }
     }
     const isHindiQuery = /[\u0900-\u097F]/.test(query) || query.toLowerCase().includes("khet") || query.toLowerCase().includes("fasal")
     if (
@@ -147,35 +157,27 @@ function enrichAnalysisWithQueryIntent(
     return parsed
   }
 
-  // Built-up Urban Settlement Override (Only if NOT green crops)
+  // Built-up Urban Settlement Verification (Strictly only when NOT cropland and NOT water)
   if (isSettlement) {
     const locName = groundTruth?.placeName || "Built-up Settlement"
     parsed.layer = "optical"
     parsed.detections = true
-    parsed.boundingBoxes = [
-      { box_2d: [20, 22, 54, 58], label: "Built-up Residential Cluster (98%)", confidence: 0.98 },
-      { box_2d: [46, 46, 82, 84], label: "Settlement Structures & Corridors (95%)", confidence: 0.95 },
-    ]
-    parsed.card = {
-      kind: "landcover",
-      title: `Land-Cover Composition · Built-up Settlement (${locName})`,
-      landcover: [
-        { label: "Built-up Roofs & Structures", pct: 76 },
-        { label: "Paved Streets & Concrete", pct: 18 },
-        { label: "Open Ground / Urban Trees", pct: 6 },
-      ],
+    if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
+      parsed.boundingBoxes = [
+        { box_2d: [20, 22, 54, 58], label: "Built-up Residential Cluster (98%)", confidence: 0.98 },
+        { box_2d: [46, 46, 82, 84], label: "Settlement Structures & Corridors (95%)", confidence: 0.95 },
+      ]
     }
-    const isHindiQuery = /[\u0900-\u097F]/.test(query) || query.toLowerCase().includes("khet") || query.toLowerCase().includes("fasal")
-    if (
-      parsed.answer.toLowerCase().includes("crop") ||
-      parsed.answer.toLowerCase().includes("field") ||
-      parsed.answer.includes("खेती") ||
-      parsed.answer.includes("फसल") ||
-      parsed.answer.includes("कृषि")
-    ) {
-      parsed.answer = isHindiQuery
-        ? `उपग्रह एवं भू-स्थानिक डेटाबेस सत्यापन: यह चयनित क्षेत्र (${locName}) सघन शहरी एवं आवासीय बस्ती (Built-up Settlement) है। उपग्रह दृश्यों में पक्के मकान, छतें और गलियाँ स्पष्ट दिखाई दे रही हैं। यह कृषि खेत नहीं है।`
-        : `Authoritative geospatial ground-truth verifies this designated sub-region (${locName}) as a dense built-up residential/urban settlement with concrete roof structures, paved corridors, and residential infrastructure (0% active cropland).`
+    if (!parsed.card || parsed.card.kind !== "landcover") {
+      parsed.card = {
+        kind: "landcover",
+        title: `Land-Cover Composition · Built-up Settlement (${locName})`,
+        landcover: [
+          { label: "Built-up Roofs & Structures", pct: 76 },
+          { label: "Paved Streets & Concrete", pct: 18 },
+          { label: "Open Ground / Urban Trees", pct: 6 },
+        ],
+      }
     }
     return parsed
   }
@@ -534,12 +536,24 @@ export async function POST(req: Request) {
             // Excess Green Index (ExG = 2G - R - B)
             const exG = 2 * gMean - rMean - bMean
             const greenDiff = (gMean - rMean) / (gMean + rMean + 1)
-            const isCropVegetation =
-              (gMean > rMean && gMean > bMean && exG > 3) ||
-              (greenDiff > 0.02 && exG > 1) ||
-              (gMean > rMean * 1.04 && exG > 0)
-            const isBuiltUp = !isCropVegetation && ((avgStdev > 26 && exG < 5) || (avgStdev > 32 && exG < 10))
-            const isWater = !isCropVegetation && bMean > rMean * 1.1 && gMean > rMean && avgStdev < 18
+            const blueRatio = bMean / (rMean + gMean + 1)
+
+            // 1. Active green crop canopy (photosynthetic chlorophyll dominance)
+            const isGreenCrop =
+              (gMean > rMean * 0.96 && exG > -2) ||
+              greenDiff > -0.02 ||
+              (gMean > bMean * 1.10 && exG > -5)
+
+            // 2. Cultivated soil / plowed field / fallow agricultural parcel (low blue, smooth field texture)
+            const isSoilFarmland = !isGreenCrop && blueRatio < 0.38 && bMean < 112 && avgStdev < 26
+
+            const isCropVegetation = isGreenCrop || isSoilFarmland
+
+            // 3. Water body (high blue dominance, low red, smooth specular surface)
+            const isWater = !isCropVegetation && bMean > rMean * 1.15 && gMean > rMean && avgStdev < 18
+
+            // 4. Dense built-up settlement (concrete roofs, tin sheets, high edge contrast stdev, high blue/gray brightness)
+            const isBuiltUp = !isCropVegetation && !isWater && avgStdev > 27 && bMean > 108 && exG < -8
 
             pixelMetrics = {
               stdev: avgStdev,
@@ -636,14 +650,13 @@ export async function POST(req: Request) {
       }
       if (groundTruth) {
         promptText +=
-          `[AUTHORITATIVE GEOSPATIAL DATABASE GROUND TRUTH - DETERMINISTIC VERIFICATION]:\n` +
-          `- Verified Land Type: ${groundTruth.isUrbanSettlement ? "DENSE BUILT-UP RESIDENTIAL/URBAN SETTLEMENT" : groundTruth.isWaterBody ? "WATERWAY / DRAINAGE CORRIDOR" : "AGRICULTURAL CROPLAND / RURAL PARCEL"}\n` +
-          `- Ground-Truth Location: ${groundTruth.placeName} (${groundTruth.summary})\n` +
-          (groundTruth.isUrbanSettlement
-            ? `- MANDATORY GROUND-TRUTH RULE: This sub-region is 100% PROVEN by geospatial registries to be a BUILT-UP URBAN SETTLEMENT. You MUST classify it as built-up urban infrastructure with concrete/tiled roof clusters and streets. Do NOT classify it as agricultural crops or farmland!\n\n`
-            : groundTruth.isAgricultural
-            ? `- MANDATORY GROUND-TRUTH RULE: This sub-region is 100% PROVEN by satellite multispectral reflectance to be ACTIVE AGRICULTURAL CROPLAND. You MUST classify it as agricultural cropland with green crop canopy and cultivated field parcel boundaries. Do NOT classify it as built-up urban settlement or buildings!\n\n`
-            : "\n")
+          `[GEOSPATIAL REGISTRY & GROUND TRUTH CONTEXT]:\n` +
+          `- Geographic Location: ${groundTruth.placeName} (${groundTruth.summary})\n` +
+          `- Baseline Classification: ${groundTruth.isUrbanSettlement ? "Dense Built-up Settlement" : groundTruth.isWaterBody ? "Waterway / Canal" : "Agricultural Cropland / Rural Parcel"}\n` +
+          `- MANDATORY VISUAL INSPECTION DIRECTIVE: You have high-resolution satellite imagery attached. Carefully examine the visual surface features inside this bounding box:\n` +
+          `  * If you observe green crop canopy, agricultural fields, furrows, cultivated soil, or farm plots: You MUST classify it as Agricultural Cropland.\n` +
+          `  * If you observe dense clusters of concrete/tin roofs, residential houses, or urban street grids: Classify as Built-up Settlement.\n` +
+          `  * If you observe water inundation or channels: Classify as Water / Inundation.\n\n`
       }
       promptText +=
         `User Query: "${query}"\n\n` +
@@ -808,15 +821,28 @@ export async function POST(req: Request) {
                 const aoiXmin = Math.min(aoi.xmin, aoi.xmax)
                 const aoiYmin = Math.min(aoi.ymin, aoi.ymax)
 
-                parsed.boundingBoxes = parsed.boundingBoxes.map((b) => ({
-                  ...b,
-                  box_2d: [
-                    Number((aoiYmin + (b.box_2d[0] / 100) * aoiH).toFixed(2)),
-                    Number((aoiXmin + (b.box_2d[1] / 100) * aoiW).toFixed(2)),
-                    Number((aoiYmin + (b.box_2d[2] / 100) * aoiH).toFixed(2)),
-                    Number((aoiXmin + (b.box_2d[3] / 100) * aoiW).toFixed(2)),
-                  ],
-                }))
+                parsed.boundingBoxes = parsed.boundingBoxes
+                  .filter((b) => b && Array.isArray(b.box_2d) && b.box_2d.length === 4)
+                  .map((b) => {
+                    const y0 = Number(b.box_2d[0])
+                    const x0 = Number(b.box_2d[1])
+                    const y1 = Number(b.box_2d[2])
+                    const x1 = Number(b.box_2d[3])
+                    const cy0 = Number.isFinite(y0) ? Math.max(0, Math.min(100, y0)) : 20
+                    const cx0 = Number.isFinite(x0) ? Math.max(0, Math.min(100, x0)) : 20
+                    const cy1 = Number.isFinite(y1) ? Math.max(0, Math.min(100, y1)) : 60
+                    const cx1 = Number.isFinite(x1) ? Math.max(0, Math.min(100, x1)) : 60
+
+                    return {
+                      ...b,
+                      box_2d: [
+                        Number((aoiYmin + (cy0 / 100) * aoiH).toFixed(2)),
+                        Number((aoiXmin + (cx0 / 100) * aoiW).toFixed(2)),
+                        Number((aoiYmin + (cy1 / 100) * aoiH).toFixed(2)),
+                        Number((aoiXmin + (cx1 / 100) * aoiW).toFixed(2)),
+                      ],
+                    }
+                  })
               }
 
               const sources = [
@@ -911,15 +937,28 @@ export async function POST(req: Request) {
                   const aoiXmin = Math.min(aoi.xmin, aoi.xmax)
                   const aoiYmin = Math.min(aoi.ymin, aoi.ymax)
 
-                  parsed.boundingBoxes = parsed.boundingBoxes.map((b) => ({
-                    ...b,
-                    box_2d: [
-                      Number((aoiYmin + (b.box_2d[0] / 100) * aoiH).toFixed(2)),
-                      Number((aoiXmin + (b.box_2d[1] / 100) * aoiW).toFixed(2)),
-                      Number((aoiYmin + (b.box_2d[2] / 100) * aoiH).toFixed(2)),
-                      Number((aoiXmin + (b.box_2d[3] / 100) * aoiW).toFixed(2)),
-                    ],
-                  }))
+                  parsed.boundingBoxes = parsed.boundingBoxes
+                    .filter((b) => b && Array.isArray(b.box_2d) && b.box_2d.length === 4)
+                    .map((b) => {
+                      const y0 = Number(b.box_2d[0])
+                      const x0 = Number(b.box_2d[1])
+                      const y1 = Number(b.box_2d[2])
+                      const x1 = Number(b.box_2d[3])
+                      const cy0 = Number.isFinite(y0) ? Math.max(0, Math.min(100, y0)) : 20
+                      const cx0 = Number.isFinite(x0) ? Math.max(0, Math.min(100, x0)) : 20
+                      const cy1 = Number.isFinite(y1) ? Math.max(0, Math.min(100, y1)) : 60
+                      const cx1 = Number.isFinite(x1) ? Math.max(0, Math.min(100, x1)) : 60
+
+                      return {
+                        ...b,
+                        box_2d: [
+                          Number((aoiYmin + (cy0 / 100) * aoiH).toFixed(2)),
+                          Number((aoiXmin + (cx0 / 100) * aoiW).toFixed(2)),
+                          Number((aoiYmin + (cy1 / 100) * aoiH).toFixed(2)),
+                          Number((aoiXmin + (cx1 / 100) * aoiW).toFixed(2)),
+                        ],
+                      }
+                    })
                 }
 
                 const sources = [

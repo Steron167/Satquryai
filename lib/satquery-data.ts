@@ -423,16 +423,29 @@ export function apiToResponse(a: ApiAnalysis, dynamicSources?: string[]): Canned
       card = undefined
   }
 
-  // Convert bounding boxes to normalized DetectionBox
-  const boundingBoxes: DetectionBox[] | undefined = a.boundingBoxes?.map((b, i) => ({
-    id: `vlm-${i}`,
-    ymin: b.box_2d[0],
-    xmin: b.box_2d[1],
-    ymax: b.box_2d[2],
-    xmax: b.box_2d[3],
-    label: b.label,
-    conf: b.confidence ?? 0.92,
-  }))
+  // Convert bounding boxes to normalized DetectionBox with strict finite number validation
+  const boundingBoxes: DetectionBox[] | undefined = a.boundingBoxes
+    ?.filter((b) => b && Array.isArray(b.box_2d) && b.box_2d.length === 4)
+    .map((b, i) => {
+      const y0 = Number(b.box_2d[0])
+      const x0 = Number(b.box_2d[1])
+      const y1 = Number(b.box_2d[2])
+      const x1 = Number(b.box_2d[3])
+      const ymin = Number.isFinite(y0) ? Math.max(0, Math.min(100, Math.min(y0, y1))) : 20
+      const ymax = Number.isFinite(y1) ? Math.max(0, Math.min(100, Math.max(y0, y1))) : 60
+      const xmin = Number.isFinite(x0) ? Math.max(0, Math.min(100, Math.min(x0, x1))) : 20
+      const xmax = Number.isFinite(x1) ? Math.max(0, Math.min(100, Math.max(x0, x1))) : 60
+
+      return {
+        id: `vlm-${i}`,
+        ymin,
+        xmin,
+        ymax: ymax <= ymin ? Math.min(100, ymin + 15) : ymax,
+        xmax: xmax <= xmin ? Math.min(100, xmin + 15) : xmax,
+        label: b.label || "Detected Feature",
+        conf: typeof b.confidence === "number" && Number.isFinite(b.confidence) ? b.confidence : 0.92,
+      }
+    })
 
   return {
     text: a.answer,
@@ -741,8 +754,22 @@ export function matchQuery(
     }
   }
 
-  // Intent: Buildings / Urban / Settlements / Solar Panels / Detection
-  if (q.includes("build") || q.includes("urban") || q.includes("settle") || q.includes("solar") || q.includes("house") || q.includes("detect") || q.includes("count")) {
+  // Intent: Buildings / Urban / Settlements / Solar Panels / Detection (excluding general land-cover or farm queries)
+  if (
+    (q.includes("build") ||
+      q.includes("urban") ||
+      q.includes("settle") ||
+      q.includes("solar") ||
+      q.includes("house") ||
+      q.includes("detect") ||
+      q.includes("count")) &&
+    !q.includes("crop") &&
+    !q.includes("farm") &&
+    !q.includes("khet") &&
+    !q.includes("fasal") &&
+    !q.includes("classify") &&
+    !q.includes("dominant land-cover")
+  ) {
     const count = sceneId === "bhadla" ? 342 : sceneId === "godavari" ? 128 : 84
     const label = sceneId === "bhadla" ? "solar PV arrays & transformers" : "built-up structures & facilities"
     return {

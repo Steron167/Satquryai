@@ -301,20 +301,30 @@ export function LeafletMap({
     }
 
     if (selectedAOI?.bounds) {
-      const bounds = L.latLngBounds(
-        [selectedAOI.bounds.south, selectedAOI.bounds.west],
-        [selectedAOI.bounds.north, selectedAOI.bounds.east]
-      )
+      const b = selectedAOI.bounds
+      if (
+        Number.isFinite(b.south) &&
+        Number.isFinite(b.west) &&
+        Number.isFinite(b.north) &&
+        Number.isFinite(b.east)
+      ) {
+        try {
+          const bounds = L.latLngBounds([b.south, b.west], [b.north, b.east])
+          if (bounds.isValid()) {
+            const rect = L.rectangle(bounds, {
+              color: "#06b6d4",
+              weight: 2.5,
+              fillColor: "#22d3ee",
+              fillOpacity: 0.22,
+              dashArray: "6, 6",
+            }).addTo(mapRef.current)
 
-      const rect = L.rectangle(bounds, {
-        color: "#06b6d4",
-        weight: 2.5,
-        fillColor: "#22d3ee",
-        fillOpacity: 0.22,
-        dashArray: "6, 6",
-      }).addTo(mapRef.current)
-
-      selectionRectRef.current = rect
+            selectionRectRef.current = rect
+          }
+        } catch (e) {
+          console.warn("Error drawing selection rect:", e)
+        }
+      }
     }
   }, [selectedAOI])
 
@@ -327,7 +337,13 @@ export function LeafletMap({
       let floodPolygons: [number, number][][] = []
       let targetBounds: L.LatLngBounds | null = null
 
-      if (selectedAOI?.bounds) {
+      if (
+        selectedAOI?.bounds &&
+        Number.isFinite(selectedAOI.bounds.north) &&
+        Number.isFinite(selectedAOI.bounds.south) &&
+        Number.isFinite(selectedAOI.bounds.east) &&
+        Number.isFinite(selectedAOI.bounds.west)
+      ) {
         // Constrain flood inundation strictly to the farmer's selected field parcel
         const b = selectedAOI.bounds
         const centerLat = (b.north + b.south) / 2
@@ -345,7 +361,10 @@ export function LeafletMap({
             [centerLat - latSpan * 0.20, centerLon - lonSpan * 0.26],
           ],
         ]
-        targetBounds = L.latLngBounds([b.south, b.west], [b.north, b.east])
+        try {
+          const bnds = L.latLngBounds([b.south, b.west], [b.north, b.east])
+          if (bnds.isValid()) targetBounds = bnds
+        } catch {}
       } else {
         const [centerLat, centerLon] = parseCenter(scene)
         floodPolygons = [
@@ -370,36 +389,55 @@ export function LeafletMap({
       const allCoords: [number, number][] = []
 
       floodPolygons.forEach((polyCoords, idx) => {
-        allCoords.push(...(polyCoords as [number, number][]))
-        const poly = L.polygon(polyCoords as [number, number][], {
-          color: "#0284c7",
-          weight: 2.5,
-          fillColor: "#38bdf8",
-          fillOpacity: 0.45,
-          dashArray: "4, 4",
-        })
-
-        const titleText = selectedAOI
-          ? `🌊 SAR Inundated Parcel Sub-Area (~${(selectedAOI.areaKm2 * 0.35).toFixed(1)} km²)`
-          : `🌊 SAR Inundated Zone #${idx + 1}`
-
-        poly.bindTooltip(
-          `<div class="font-mono text-[10px] font-bold text-sky-200 bg-slate-950/95 px-2 py-1 rounded border border-sky-400/80 shadow-xl backdrop-blur-sm">
-            ${titleText}<br/>
-            <span class="text-[9px] text-sky-300 font-normal">Otsu &lt; -16.2 dB · Submerged Crop Lowland</span>
-          </div>`,
-          { permanent: true, direction: "center", className: "satquery-tooltip" }
+        const validPoly = polyCoords.filter(
+          (c) => Array.isArray(c) && c.length === 2 && Number.isFinite(c[0]) && Number.isFinite(c[1])
         )
+        if (validPoly.length < 3) return
+        allCoords.push(...validPoly)
 
-        floodLayerGroupRef.current?.addLayer(poly)
+        try {
+          const poly = L.polygon(validPoly, {
+            color: "#0284c7",
+            weight: 2.5,
+            fillColor: "#38bdf8",
+            fillOpacity: 0.45,
+            dashArray: "4, 4",
+          })
+
+          const titleText = selectedAOI
+            ? `🌊 SAR Inundated Parcel Sub-Area (~${(selectedAOI.areaKm2 * 0.35).toFixed(1)} km²)`
+            : `🌊 SAR Inundated Zone #${idx + 1}`
+
+          poly.bindTooltip(
+            `<div class="font-mono text-[10px] font-bold text-sky-200 bg-slate-950/95 px-2 py-1 rounded border border-sky-400/80 shadow-xl backdrop-blur-sm">
+              ${titleText}<br/>
+              <span class="text-[9px] text-sky-300 font-normal">Otsu &lt; -16.2 dB · Submerged Crop Lowland</span>
+            </div>`,
+            { permanent: true, direction: "center", className: "satquery-tooltip" }
+          )
+
+          floodLayerGroupRef.current?.addLayer(poly)
+        } catch (polyErr) {
+          console.warn("Flood polygon draw error:", polyErr)
+        }
       })
 
       if (mapRef.current) {
-        if (targetBounds) {
-          mapRef.current.flyToBounds(targetBounds.pad(0.15), { duration: 1.2, maxZoom: 17 })
+        if (targetBounds && targetBounds.isValid()) {
+          try {
+            mapRef.current.flyToBounds(targetBounds.pad(0.15), { duration: 1.2, maxZoom: 17 })
+          } catch (e) {
+            console.warn("flyToBounds targetBounds suppressed:", e)
+          }
         } else if (allCoords.length > 0) {
-          const groupBounds = L.latLngBounds(allCoords)
-          mapRef.current.flyToBounds(groupBounds.pad(0.2), { duration: 1.2, maxZoom: 16 })
+          try {
+            const groupBounds = L.latLngBounds(allCoords)
+            if (groupBounds.isValid()) {
+              mapRef.current.flyToBounds(groupBounds.pad(0.2), { duration: 1.2, maxZoom: 16 })
+            }
+          } catch (e) {
+            console.warn("flyToBounds groupBounds suppressed:", e)
+          }
         }
       }
     }
@@ -411,68 +449,126 @@ export function LeafletMap({
     detectionMarkersRef.current.clearLayers()
 
     if (state.detections && state.dynamicBoxes && state.dynamicBoxes.length > 0) {
-      const activeBounds = selectedAOI?.bounds || scene.bounds || {
-        north: parseCenter(scene)[0] + 0.04,
-        south: parseCenter(scene)[0] - 0.04,
-        east: parseCenter(scene)[1] + 0.04,
-        west: parseCenter(scene)[1] - 0.04,
-      }
+      const center = parseCenter(scene)
+      const rawBounds = selectedAOI?.bounds || scene.bounds
+      const north = rawBounds && Number.isFinite(rawBounds.north) ? rawBounds.north : center[0] + 0.04
+      const south = rawBounds && Number.isFinite(rawBounds.south) ? rawBounds.south : center[0] - 0.04
+      const east = rawBounds && Number.isFinite(rawBounds.east) ? rawBounds.east : center[1] + 0.04
+      const west = rawBounds && Number.isFinite(rawBounds.west) ? rawBounds.west : center[1] - 0.04
 
-      const latSpan = activeBounds.north - activeBounds.south
-      const lonSpan = activeBounds.east - activeBounds.west
+      const latSpan = north - south
+      const lonSpan = east - west
+
+      if (!Number.isFinite(latSpan) || !Number.isFinite(lonSpan) || latSpan <= 0 || lonSpan <= 0) {
+        return
+      }
 
       const allBoxBounds: L.LatLngBounds[] = []
 
       state.dynamicBoxes.forEach((box: DetectionBox) => {
-        const boxNorth = activeBounds.north - (box.ymin / 100) * latSpan
-        const boxSouth = activeBounds.north - (box.ymax / 100) * latSpan
-        const boxWest = activeBounds.west + (box.xmin / 100) * lonSpan
-        const boxEast = activeBounds.west + (box.xmax / 100) * lonSpan
+        const ymin = Number(box.ymin)
+        const ymax = Number(box.ymax)
+        const xmin = Number(box.xmin)
+        const xmax = Number(box.xmax)
 
-        const rectBounds = L.latLngBounds([boxSouth, boxWest], [boxNorth, boxEast])
-        allBoxBounds.push(rectBounds)
+        if (!Number.isFinite(ymin) || !Number.isFinite(ymax) || !Number.isFinite(xmin) || !Number.isFinite(xmax)) {
+          return
+        }
 
-        const labelLower = box.label.toLowerCase()
-        const isFlood = labelLower.includes("flood") || labelLower.includes("inundat") || labelLower.includes("submerg")
-        const isWater = !isFlood && (labelLower.includes("water") || labelLower.includes("river") || labelLower.includes("canal") || labelLower.includes("drainage"))
-        const isVeg = labelLower.includes("crop") || labelLower.includes("vegetat") || labelLower.includes("canopy") || labelLower.includes("paddy") || labelLower.includes("forest") || labelLower.includes("farm")
+        const cleanYmin = Math.max(0, Math.min(100, Math.min(ymin, ymax)))
+        const cleanYmax = Math.max(0, Math.min(100, Math.max(ymin, ymax)))
+        const cleanXmin = Math.max(0, Math.min(100, Math.min(xmin, xmax)))
+        const cleanXmax = Math.max(0, Math.min(100, Math.max(xmin, xmax)))
 
-        const strokeColor = isFlood ? "#0284c7" : isWater ? "#06b6d4" : isVeg ? "#16a34a" : "#f59e0b"
-        const fillColor = isFlood ? "#38bdf8" : isWater ? "#22d3ee" : isVeg ? "#4ade80" : "#fbbf24"
-        const borderClass = isFlood
-          ? "border-sky-500 text-sky-200"
-          : isWater
-          ? "border-cyan-500 text-cyan-200"
-          : isVeg
-          ? "border-emerald-500 text-emerald-200"
-          : "border-amber-500 text-amber-300"
-        const iconPrefix = isFlood ? "🌊 " : isWater ? "💧 " : isVeg ? "🌱 " : "🏢 "
+        // Guard against degenerate zero-size boxes
+        const safeYmax = cleanYmax <= cleanYmin ? Math.min(100, cleanYmin + 5) : cleanYmax
+        const safeXmax = cleanXmax <= cleanXmin ? Math.min(100, cleanXmin + 5) : cleanXmax
 
-        const rect = L.rectangle(rectBounds, {
-          color: strokeColor,
-          weight: 2.2,
-          fillColor: fillColor,
-          fillOpacity: 0.22,
-          dashArray: isFlood ? "4, 4" : undefined,
-        })
+        const boxNorth = north - (cleanYmin / 100) * latSpan
+        const boxSouth = north - (safeYmax / 100) * latSpan
+        const boxWest = west + (cleanXmin / 100) * lonSpan
+        const boxEast = west + (safeXmax / 100) * lonSpan
 
-        rect.bindTooltip(
-          `<div class="font-mono text-[10px] font-bold ${borderClass} bg-slate-950/95 px-2 py-0.5 rounded border shadow-xl backdrop-blur-sm whitespace-nowrap">
-            ${iconPrefix}${box.label} <span class="opacity-80 font-normal">(${Math.round(box.conf * 100)}%)</span>
-          </div>`,
-          { permanent: true, direction: "top", className: "satquery-tooltip" }
-        )
+        if (
+          !Number.isFinite(boxNorth) ||
+          !Number.isFinite(boxSouth) ||
+          !Number.isFinite(boxWest) ||
+          !Number.isFinite(boxEast)
+        ) {
+          return
+        }
 
-        detectionMarkersRef.current?.addLayer(rect)
+        try {
+          const rectBounds = L.latLngBounds([boxSouth, boxWest], [boxNorth, boxEast])
+          if (!rectBounds.isValid()) return
+
+          allBoxBounds.push(rectBounds)
+
+          const labelLower = (box.label || "").toLowerCase()
+          const isFlood = labelLower.includes("flood") || labelLower.includes("inundat") || labelLower.includes("submerg")
+          const isWater =
+            !isFlood &&
+            (labelLower.includes("water") ||
+              labelLower.includes("river") ||
+              labelLower.includes("canal") ||
+              labelLower.includes("drainage"))
+          const isVeg =
+            labelLower.includes("crop") ||
+            labelLower.includes("vegetat") ||
+            labelLower.includes("canopy") ||
+            labelLower.includes("paddy") ||
+            labelLower.includes("forest") ||
+            labelLower.includes("farm")
+
+          const strokeColor = isFlood ? "#0284c7" : isWater ? "#06b6d4" : isVeg ? "#16a34a" : "#f59e0b"
+          const fillColor = isFlood ? "#38bdf8" : isWater ? "#22d3ee" : isVeg ? "#4ade80" : "#fbbf24"
+          const borderClass = isFlood
+            ? "border-sky-500 text-sky-200"
+            : isWater
+            ? "border-cyan-500 text-cyan-200"
+            : isVeg
+            ? "border-emerald-500 text-emerald-200"
+            : "border-amber-500 text-amber-300"
+          const iconPrefix = isFlood ? "🌊 " : isWater ? "💧 " : isVeg ? "🌱 " : "🏢 "
+
+          const rect = L.rectangle(rectBounds, {
+            color: strokeColor,
+            weight: 2.2,
+            fillColor: fillColor,
+            fillOpacity: 0.22,
+            dashArray: isFlood ? "4, 4" : undefined,
+          })
+
+          const conf = Number.isFinite(box.conf) ? box.conf : 0.92
+          rect.bindTooltip(
+            `<div class="font-mono text-[10px] font-bold ${borderClass} bg-slate-950/95 px-2 py-0.5 rounded border shadow-xl backdrop-blur-sm whitespace-nowrap">
+              ${iconPrefix}${box.label || "Feature"} <span class="opacity-80 font-normal">(${Math.round(conf * 100)}%)</span>
+            </div>`,
+            { permanent: true, direction: "top", className: "satquery-tooltip" }
+          )
+
+          detectionMarkersRef.current?.addLayer(rect)
+        } catch (boxErr) {
+          console.warn("Detection box add error:", boxErr)
+        }
       })
 
       // If user hasn't explicitly selected an AOI, fly to show all detected boxes smoothly
       if (!selectedAOI && allBoxBounds.length > 0 && mapRef.current && !state.flood) {
-        let combinedBounds = allBoxBounds[0]
-        for (let i = 1; i < allBoxBounds.length; i++) {
-          combinedBounds = combinedBounds.extend(allBoxBounds[i])
+        const validBounds = allBoxBounds.filter((b) => b && typeof b.isValid === "function" && b.isValid())
+        if (validBounds.length > 0) {
+          let combinedBounds = validBounds[0]
+          for (let i = 1; i < validBounds.length; i++) {
+            combinedBounds = combinedBounds.extend(validBounds[i])
+          }
+          if (combinedBounds && typeof combinedBounds.isValid === "function" && combinedBounds.isValid()) {
+            try {
+              mapRef.current.flyToBounds(combinedBounds.pad(0.2), { duration: 1.2, maxZoom: 16 })
+            } catch (flyErr) {
+              console.warn("flyToBounds suppressed error:", flyErr)
+            }
+          }
         }
-        mapRef.current.flyToBounds(combinedBounds.pad(0.2), { duration: 1.2, maxZoom: 16 })
       }
     }
   }, [state.detections, state.dynamicBoxes, selectedAOI, scene, state.flood])
@@ -540,6 +636,23 @@ export function LeafletMap({
         south = Math.min(dragStart.lat, currentLatLng.lat)
         east = Math.max(dragStart.lng, currentLatLng.lng)
         west = Math.min(dragStart.lng, currentLatLng.lng)
+      }
+
+      if (!Number.isFinite(north) || !Number.isFinite(south) || !Number.isFinite(east) || !Number.isFinite(west)) {
+        const center = parseCenter(scene)
+        north = center[0] + 0.0035
+        south = center[0] - 0.0035
+        east = center[1] + 0.0035
+        west = center[1] - 0.0035
+      }
+
+      if (north - south < 0.0005) {
+        north += 0.001
+        south -= 0.001
+      }
+      if (east - west < 0.0005) {
+        east += 0.001
+        west -= 0.001
       }
 
       // Geodesic area calculation in km²
@@ -643,6 +756,23 @@ export function LeafletMap({
         south = Math.min(dragStart.lat, currentLatLng.lat)
         east = Math.max(dragStart.lng, currentLatLng.lng)
         west = Math.min(dragStart.lng, currentLatLng.lng)
+      }
+
+      if (!Number.isFinite(north) || !Number.isFinite(south) || !Number.isFinite(east) || !Number.isFinite(west)) {
+        const center = parseCenter(scene)
+        north = center[0] + 0.0035
+        south = center[0] - 0.0035
+        east = center[1] + 0.0035
+        west = center[1] - 0.0035
+      }
+
+      if (north - south < 0.0005) {
+        north += 0.001
+        south -= 0.001
+      }
+      if (east - west < 0.0005) {
+        east += 0.001
+        west -= 0.001
       }
 
       const latDist = Math.abs(north - south) * 111.32

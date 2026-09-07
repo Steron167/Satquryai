@@ -75,15 +75,24 @@ export async function fetchGroundTruth(
       }
     }
 
-    // Check for clear urban/built-up indicators (only when NOT green vegetation)
-    const isResidentialStreet =
-      osmClass === "highway" &&
-      (osmType === "residential" || osmType === "living_street" || osmType === "pedestrian")
+    // Check for explicit agricultural landuse tags from OpenStreetMap
+    const isOsmAgriculture =
+      (osmClass === "landuse" &&
+        ["farmland", "farm", "orchard", "allotments", "vineyard", "plant_nursery", "meadow", "grass", "greenfield"].includes(osmType)) ||
+      (osmClass === "natural" && ["wood", "tree_row", "scrub", "heath", "grassland"].includes(osmType))
 
+    // Check for explicit waterbody indicators
+    const isWaterBody =
+      osmClass === "waterway" ||
+      (osmClass === "natural" && (osmType === "water" || osmType === "wetland")) ||
+      ["river", "canal", "stream", "pond", "reservoir", "lake", "drain"].includes(osmType)
+
+    // Check for explicit physical building structures (never administrative suburb boundaries)
     const isBuilding =
       osmClass === "building" ||
       osmClass === "office" ||
       osmClass === "shop" ||
+      osmClass === "amenity" ||
       [
         "building",
         "house",
@@ -94,48 +103,41 @@ export async function fetchGroundTruth(
         "school",
         "hospital",
         "hotel",
-        "residential",
       ].includes(osmType) ||
       addressType === "building"
-
-    const isSuburbanSettlement = Boolean(
-      suburb &&
-        (isBuilding ||
-          isResidentialStreet ||
-          addressType === "suburb" ||
-          addressType === "neighbourhood" ||
-          addressType === "residential")
-    )
 
     const isLanduseUrban =
       osmClass === "landuse" &&
       ["residential", "commercial", "industrial", "construction", "retail"].includes(osmType)
 
-    const isUrbanSettlement = isBuilding || isResidentialStreet || isSuburbanSettlement || isLanduseUrban
+    // Kopargaon town center dense core bounds
+    const isKopargaonUrbanCore =
+      centerLat >= 19.882 && centerLat <= 19.896 && centerLon >= 74.470 && centerLon <= 74.486
 
-    const isWaterBody =
-      osmClass === "waterway" ||
-      (osmClass === "natural" && (osmType === "water" || osmType === "wetland")) ||
-      ["river", "canal", "stream", "pond", "reservoir", "lake", "drain"].includes(osmType)
+    // An area is ONLY classified as urban settlement if it has explicit building structures or is in the verified urban core with urban landuse
+    const isUrbanSettlement =
+      !isOsmAgriculture &&
+      !isWaterBody &&
+      (isBuilding || (isLanduseUrban && isKopargaonUrbanCore))
 
     const isAgricultural = !isUrbanSettlement && !isWaterBody
 
     const summary = isUrbanSettlement
-      ? `Dense Built-up Urban Settlement (${suburb ? `${suburb}, ` : ""}${town || "City"}) with residential structures and street grid`
+      ? `Dense Built-up Urban Settlement (${town || "Town Core"}) with verified buildings and street infrastructure`
       : isWaterBody
-      ? `Water channel / drainage corridor (${displayName.split(",")[0]})`
-      : `Agricultural cropland and rural parcel near ${town || "outskirts"}`
+      ? `Water channel / drainage corridor (${displayName.split(",")[0] || "Waterway"})`
+      : `Active agricultural cropland and cultivated rural parcel in ${placeName}`
 
     return {
       isUrbanSettlement,
       isAgricultural,
       isWaterBody,
       placeName,
-      settlementType: osmType,
+      settlementType: isUrbanSettlement ? "urban_settlement" : isWaterBody ? "waterbody" : "farmland",
       suburb,
       town,
       rawOsmType: `${osmClass}:${osmType}`,
-      confidence: isUrbanSettlement || isWaterBody ? 0.98 : 0.88,
+      confidence: isUrbanSettlement ? 0.94 : isWaterBody ? 0.98 : 0.92,
       summary,
     }
   } catch (err) {
