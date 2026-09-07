@@ -260,7 +260,7 @@ export function LeafletMap({
         break
       }
       case "ndvi": {
-        filterStyle = "contrast(180%) saturate(260%) hue-rotate(50deg) brightness(95%)"
+        filterStyle = "contrast(135%) saturate(180%) brightness(100%)"
         break
       }
       case "ndwi": {

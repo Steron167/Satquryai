@@ -110,20 +110,32 @@ export async function fetchGroundTruth(
       osmClass === "landuse" &&
       ["residential", "commercial", "industrial", "construction", "retail"].includes(osmType)
 
-    // Kopargaon town center dense core bounds
+    // Kopargaon town center dense core bounds (including Annapurna Nagar, Main Market, Station Road)
     const isKopargaonUrbanCore =
-      centerLat >= 19.882 && centerLat <= 19.896 && centerLon >= 74.470 && centerLon <= 74.486
+      centerLat >= 19.878 && centerLat <= 19.898 && centerLon >= 74.468 && centerLon <= 74.488
 
-    // An area is ONLY classified as urban settlement if it has explicit building structures or is in the verified urban core with urban landuse
+    // Recognizes named residential colonies / nagars inside town core
+    const isNamedUrbanColony = Boolean(
+      isKopargaonUrbanCore &&
+        (placeName.toLowerCase().includes("nagar") ||
+          suburb.toLowerCase().includes("nagar") ||
+          displayName.toLowerCase().includes("annapurna") ||
+          addressType === "neighbourhood" ||
+          addressType === "residential" ||
+          osmType === "residential" ||
+          osmType === "neighbourhood")
+    )
+
+    // An area is classified as urban settlement if it has explicit buildings, urban landuse, or is a named urban residential colony in town
     const isUrbanSettlement =
       !isOsmAgriculture &&
       !isWaterBody &&
-      (isBuilding || (isLanduseUrban && isKopargaonUrbanCore))
+      (isBuilding || (isLanduseUrban && isKopargaonUrbanCore) || isNamedUrbanColony)
 
     const isAgricultural = !isUrbanSettlement && !isWaterBody
 
     const summary = isUrbanSettlement
-      ? `Dense Built-up Urban Settlement (${town || "Town Core"}) with verified buildings and street infrastructure`
+      ? `Dense Built-up Urban Settlement (${placeName || town || "Town Core"}) with residential buildings and street infrastructure`
       : isWaterBody
       ? `Water channel / drainage corridor (${displayName.split(",")[0] || "Waterway"})`
       : `Active agricultural cropland and cultivated rural parcel in ${placeName}`

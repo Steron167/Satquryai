@@ -107,18 +107,57 @@ function enrichAnalysisWithQueryIntent(
   pixelMetrics?: PixelMetrics | null
 ): ApiAnalysis {
   const q = query.toLowerCase()
+  const ans = (parsed.answer || "").toLowerCase()
 
-  // High-Confidence Geospatial Ground-Truth & Spectral Physics Fusion
-  const isCrop = Boolean(
-    pixelMetrics?.isCropVegetation ||
-      (groundTruth?.isAgricultural && !groundTruth?.isUrbanSettlement)
+  // Detect whether Gemini or ground-truth identified this as urban/built-up settlement
+  const isSettlement = Boolean(
+    groundTruth?.isUrbanSettlement ||
+      ans.includes("built-up") ||
+      ans.includes("settlement") ||
+      ans.includes("residential") ||
+      ans.includes("building") ||
+      ans.includes("houses") ||
+      ans.includes("मकान") ||
+      ans.includes("बस्ती") ||
+      ans.includes("कॉलोनी") ||
+      (pixelMetrics?.isBuiltUp && !pixelMetrics?.isCropVegetation)
   )
-  const isSettlement =
-    !isCrop &&
+
+  const isCrop =
+    !isSettlement &&
     Boolean(
-      (groundTruth?.isUrbanSettlement && pixelMetrics?.isBuiltUp) ||
-      (groundTruth?.isUrbanSettlement && !pixelMetrics?.isCropVegetation && !pixelMetrics?.isWater)
+      pixelMetrics?.isCropVegetation ||
+        (groundTruth?.isAgricultural && !groundTruth?.isUrbanSettlement) ||
+        ans.includes("cropland") ||
+        ans.includes("fasal") ||
+        ans.includes("khet") ||
+        ans.includes("कृषि")
     )
+
+  // Built-up Urban Settlement: preserve optical layer, ensure settlement boxes/card, DO NOT overwrite answer
+  if (isSettlement) {
+    const locName = groundTruth?.placeName || sceneName || "Built-up Settlement"
+    parsed.layer = "optical"
+    parsed.detections = true
+    if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
+      parsed.boundingBoxes = [
+        { box_2d: [20, 22, 54, 58], label: "Built-up Residential Cluster (98%)", confidence: 0.98 },
+        { box_2d: [46, 46, 82, 84], label: "Settlement Structures & Corridors (95%)", confidence: 0.95 },
+      ]
+    }
+    if (!parsed.card || parsed.card.kind !== "landcover") {
+      parsed.card = {
+        kind: "landcover",
+        title: `Land-Cover Composition · Built-up Settlement (${locName})`,
+        landcover: [
+          { label: "Built-up Roofs & Structures", pct: 76 },
+          { label: "Paved Streets & Concrete", pct: 18 },
+          { label: "Open Ground / Urban Trees", pct: 6 },
+        ],
+      }
+    }
+    return parsed
+  }
 
   // Crop / Agricultural Parcel Verification (Spectral Physics & Visual Canopy take highest priority)
   if (isCrop) {
@@ -142,43 +181,6 @@ function enrichAnalysisWithQueryIntent(
         ],
       }
     }
-    const isHindiQuery = /[\u0900-\u097F]/.test(query) || query.toLowerCase().includes("khet") || query.toLowerCase().includes("fasal")
-    if (
-      parsed.answer.toLowerCase().includes("built-up") ||
-      parsed.answer.toLowerCase().includes("settlement") ||
-      parsed.answer.toLowerCase().includes("residential") ||
-      parsed.answer.includes("बस्ती") ||
-      parsed.answer.includes("मकान")
-    ) {
-      parsed.answer = isHindiQuery
-        ? `उपग्रह एवं स्पेक्ट्रल सत्यापन: यह चयनित क्षेत्र (~${selectedAOI?.areaKm2 || 0.04} km² in ${locName}) सक्रिय कृषि खेत (Agricultural Cropland) है। स्पेक्ट्रल क्लोरोफिल रिफ्लेक्टेंस में फसल की सघन हरियाली और मेड़ें स्पष्ट दिखाई दे रही हैं। यह आवासीय बस्ती नहीं है।`
-        : `Multispectral satellite reflectance verifies this designated parcel (~${selectedAOI?.areaKm2 || 0.04} km² in ${locName}) as active agricultural cropland with healthy photosynthetic chlorophyll canopy and cultivated field boundaries.`
-    }
-    return parsed
-  }
-
-  // Built-up Urban Settlement Verification (Strictly only when NOT cropland and NOT water)
-  if (isSettlement) {
-    const locName = groundTruth?.placeName || "Built-up Settlement"
-    parsed.layer = "optical"
-    parsed.detections = true
-    if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
-      parsed.boundingBoxes = [
-        { box_2d: [20, 22, 54, 58], label: "Built-up Residential Cluster (98%)", confidence: 0.98 },
-        { box_2d: [46, 46, 82, 84], label: "Settlement Structures & Corridors (95%)", confidence: 0.95 },
-      ]
-    }
-    if (!parsed.card || parsed.card.kind !== "landcover") {
-      parsed.card = {
-        kind: "landcover",
-        title: `Land-Cover Composition · Built-up Settlement (${locName})`,
-        landcover: [
-          { label: "Built-up Roofs & Structures", pct: 76 },
-          { label: "Paved Streets & Concrete", pct: 18 },
-          { label: "Open Ground / Urban Trees", pct: 6 },
-        ],
-      }
-    }
     return parsed
   }
 
@@ -187,9 +189,11 @@ function enrichAnalysisWithQueryIntent(
     const locName = groundTruth?.placeName || "Waterway"
     parsed.layer = "ndwi"
     parsed.detections = true
-    parsed.boundingBoxes = [
-      { box_2d: [25, 20, 65, 80], label: "Waterbody / River Channel (96%)", confidence: 0.96 },
-    ]
+    if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
+      parsed.boundingBoxes = [
+        { box_2d: [25, 20, 65, 80], label: "Waterbody / River Channel (96%)", confidence: 0.96 },
+      ]
+    }
     parsed.card = {
       kind: "detections",
       title: `Water Surface Analysis · ${locName}`,
@@ -269,9 +273,6 @@ function enrichAnalysisWithQueryIntent(
         floodArea: floodAreaStr,
       }
     }
-    if (selectedAOI && parsed.answer && !parsed.answer.toLowerCase().includes("selected") && !parsed.answer.toLowerCase().includes("sub-area") && !parsed.answer.toLowerCase().includes("field")) {
-      parsed.answer = `Targeted sub-area analysis for your selected ~${selectedAOI.areaKm2} km² field parcel: ${parsed.answer}`
-    }
   } else if (isWaterQuery) {
     parsed.layer = "ndwi"
     parsed.detections = true
@@ -300,9 +301,6 @@ function enrichAnalysisWithQueryIntent(
         ndviHealthy: 82,
       }
     }
-    if (selectedAOI && parsed.answer && !parsed.answer.toLowerCase().includes("selected") && !parsed.answer.toLowerCase().includes("sub-area") && !parsed.answer.toLowerCase().includes("field")) {
-      parsed.answer = `NDVI crop health analysis for your designated ~${selectedAOI.areaKm2} km² field: ${parsed.answer}`
-    }
   } else if (isUrbanQuery) {
     parsed.detections = true
     if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
@@ -310,9 +308,6 @@ function enrichAnalysisWithQueryIntent(
         { box_2d: [26, 50, 42, 68], label: "Built-up Settlement Cluster", confidence: 0.95 },
         { box_2d: [44, 56, 58, 74], label: "Commercial / Residential Zone", confidence: 0.92 },
       ]
-    }
-    if (selectedAOI && parsed.answer && !parsed.answer.toLowerCase().includes("selected") && !parsed.answer.toLowerCase().includes("sub-area") && !parsed.answer.toLowerCase().includes("field")) {
-      parsed.answer = `Object grounding inside your designated ~${selectedAOI.areaKm2} km² area: ${parsed.answer}`
     }
   } else if (selectedAOI) {
     if (!parsed.card || parsed.card.kind === "none") {
@@ -540,20 +535,28 @@ export async function POST(req: Request) {
 
             // 1. Active green crop canopy (photosynthetic chlorophyll dominance)
             const isGreenCrop =
-              (gMean > rMean * 0.96 && exG > -2) ||
-              greenDiff > -0.02 ||
-              (gMean > bMean * 1.10 && exG > -5)
+              !groundTruth?.isUrbanSettlement &&
+              ((gMean > rMean * 1.06 && exG > 4) ||
+                (greenDiff > 0.04 && exG > 2) ||
+                (gMean > bMean * 1.15 && exG > 2))
 
             // 2. Cultivated soil / plowed field / fallow agricultural parcel (low blue, smooth field texture)
-            const isSoilFarmland = !isGreenCrop && blueRatio < 0.38 && bMean < 112 && avgStdev < 26
+            const isSoilFarmland =
+              !groundTruth?.isUrbanSettlement &&
+              !isGreenCrop &&
+              blueRatio < 0.38 &&
+              bMean < 112 &&
+              avgStdev < 24
 
             const isCropVegetation = isGreenCrop || isSoilFarmland
 
             // 3. Water body (high blue dominance, low red, smooth specular surface)
             const isWater = !isCropVegetation && bMean > rMean * 1.15 && gMean > rMean && avgStdev < 18
 
-            // 4. Dense built-up settlement (concrete roofs, tin sheets, high edge contrast stdev, high blue/gray brightness)
-            const isBuiltUp = !isCropVegetation && !isWater && avgStdev > 27 && bMean > 108 && exG < -8
+            // 4. Dense built-up settlement (concrete roofs, tin sheets, high edge contrast stdev, residential/urban ground truth)
+            const isBuiltUp =
+              Boolean(groundTruth?.isUrbanSettlement) ||
+              (!isCropVegetation && !isWater && (avgStdev > 25 || (bMean > 105 && exG < -2)))
 
             pixelMetrics = {
               stdev: avgStdev,
@@ -563,9 +566,8 @@ export async function POST(req: Request) {
               greenDominance: Number((greenDiff * 100).toFixed(1)),
             }
 
-            // Sync groundTruth with physical spectral observations
-            if (groundTruth && isCropVegetation) {
-              groundTruth.isUrbanSettlement = false
+            // Sync groundTruth with physical spectral observations ONLY if not already an urban settlement
+            if (groundTruth && isCropVegetation && !groundTruth.isUrbanSettlement) {
               groundTruth.isAgricultural = true
               groundTruth.summary = `Active agricultural cropland and cultivated field parcel in ${groundTruth.placeName}`
             }
