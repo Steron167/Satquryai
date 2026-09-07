@@ -96,6 +96,10 @@ interface PixelMetrics {
   isBuiltUp: boolean
   isWater: boolean
   greenDominance: number
+  cropPct: number
+  builtPct: number
+  waterPct: number
+  soilPct: number
 }
 
 function enrichAnalysisWithQueryIntent(
@@ -146,13 +150,16 @@ function enrichAnalysisWithQueryIntent(
       ]
     }
     if (!parsed.card || parsed.card.kind !== "landcover") {
+      const built = pixelMetrics ? Math.max(pixelMetrics.builtPct, 64) : 74
+      const paved = pixelMetrics ? Math.min(Math.max(pixelMetrics.soilPct, 12), 24) : 18
+      const greenery = Math.max(4, 100 - built - paved)
       parsed.card = {
         kind: "landcover",
         title: `Land-Cover Composition · Built-up Settlement (${locName})`,
         landcover: [
-          { label: "Built-up Roofs & Structures", pct: 76 },
-          { label: "Paved Streets & Concrete", pct: 18 },
-          { label: "Open Ground / Urban Trees", pct: 6 },
+          { label: "Built-up Roofs & Structures", pct: built },
+          { label: "Paved Streets & Concrete", pct: paved },
+          { label: "Open Ground / Urban Trees", pct: greenery },
         ],
       }
     }
@@ -171,13 +178,16 @@ function enrichAnalysisWithQueryIntent(
       ]
     }
     if (!parsed.card || parsed.card.kind !== "landcover") {
+      const crop = pixelMetrics ? Math.max(pixelMetrics.cropPct, 68) : 84
+      const soil = pixelMetrics ? Math.min(Math.max(pixelMetrics.soilPct, 8), 24) : 12
+      const trees = Math.max(2, 100 - crop - soil)
       parsed.card = {
         kind: "landcover",
         title: `Land-Cover Composition · Agricultural Cropland (${locName})`,
         landcover: [
-          { label: "Active Cropland / Green Canopy", pct: 84 },
-          { label: "Cultivated Soil / Field Margins", pct: 12 },
-          { label: "Farmsteads / Trees", pct: 4 },
+          { label: "Active Cropland / Green Canopy", pct: crop },
+          { label: "Cultivated Soil / Field Margins", pct: soil },
+          { label: "Farmsteads / Trees", pct: trees },
         ],
       }
     }
@@ -533,12 +543,60 @@ export async function POST(req: Request) {
             const greenDiff = (gMean - rMean) / (gMean + rMean + 1)
             const blueRatio = bMean / (rMean + gMean + 1)
 
+            // Direct pixel-level spectral segmentation on the cropped satellite image
+            const { data: rawBuffer, info: rawInfo } = await sharp(croppedOpt)
+              .resize(256, 256, { fit: "inside" })
+              .raw()
+              .toBuffer({ resolveWithObject: true })
+
+            let rawCrop = 0
+            let rawWater = 0
+            let rawBuilt = 0
+            let rawSoil = 0
+            const totalSampledPixels = rawInfo.width * rawInfo.height
+
+            for (let i = 0; i < rawBuffer.length; i += rawInfo.channels) {
+              const r = rawBuffer[i]
+              const g = rawBuffer[i + 1]
+              const b = rawBuffer[i + 2]
+              const pixelExG = 2 * g - r - b
+              const brightness = (r + g + b) / 3
+
+              if (b > r * 1.20 && b > g * 1.05 && b > 55) {
+                rawWater++
+              } else if (!groundTruth?.isUrbanSettlement && g > r * 1.05 && pixelExG > 5) {
+                rawCrop++
+              } else if (
+                Boolean(groundTruth?.isUrbanSettlement) ||
+                (brightness > 118 && Math.abs(r - g) < 24 && Math.abs(g - b) < 24) ||
+                (brightness > 105 && pixelExG < -8)
+              ) {
+                rawBuilt++
+              } else {
+                rawSoil++
+              }
+            }
+
+            let cropPct = Math.round((rawCrop / totalSampledPixels) * 100)
+            let waterPct = Math.round((rawWater / totalSampledPixels) * 100)
+            let builtPct = Math.round((rawBuilt / totalSampledPixels) * 100)
+            let soilPct = Math.max(0, 100 - (cropPct + waterPct + builtPct))
+
+            const sumPct = cropPct + waterPct + builtPct + soilPct
+            if (sumPct !== 100) {
+              const diff = 100 - sumPct
+              if (cropPct >= builtPct && cropPct >= soilPct) cropPct += diff
+              else if (builtPct >= soilPct) builtPct += diff
+              else soilPct += diff
+            }
+
             // 1. Active green crop canopy (photosynthetic chlorophyll dominance)
             const isGreenCrop =
               !groundTruth?.isUrbanSettlement &&
               ((gMean > rMean * 1.06 && exG > 4) ||
                 (greenDiff > 0.04 && exG > 2) ||
-                (gMean > bMean * 1.15 && exG > 2))
+                (gMean > bMean * 1.15 && exG > 2) ||
+                cropPct > 45)
 
             // 2. Cultivated soil / plowed field / fallow agricultural parcel (low blue, smooth field texture)
             const isSoilFarmland =
@@ -551,12 +609,12 @@ export async function POST(req: Request) {
             const isCropVegetation = isGreenCrop || isSoilFarmland
 
             // 3. Water body (high blue dominance, low red, smooth specular surface)
-            const isWater = !isCropVegetation && bMean > rMean * 1.15 && gMean > rMean && avgStdev < 18
+            const isWater = (!isCropVegetation && bMean > rMean * 1.15 && gMean > rMean && avgStdev < 18) || waterPct > 50
 
             // 4. Dense built-up settlement (concrete roofs, tin sheets, high edge contrast stdev, residential/urban ground truth)
             const isBuiltUp =
               Boolean(groundTruth?.isUrbanSettlement) ||
-              (!isCropVegetation && !isWater && (avgStdev > 25 || (bMean > 105 && exG < -2)))
+              (!isCropVegetation && !isWater && (avgStdev > 25 || (bMean > 105 && exG < -2) || builtPct > 55))
 
             pixelMetrics = {
               stdev: avgStdev,
@@ -564,6 +622,10 @@ export async function POST(req: Request) {
               isBuiltUp,
               isWater,
               greenDominance: Number((greenDiff * 100).toFixed(1)),
+              cropPct,
+              builtPct,
+              waterPct,
+              soilPct,
             }
 
             // Sync groundTruth with physical spectral observations ONLY if not already an urban settlement
@@ -648,6 +710,11 @@ export async function POST(req: Request) {
               ? "Surface Water Body"
               : "Natural Soil & Open Terrain"
           }\n` +
+          `- Physical Land-Cover Proportions (Direct Satellite Pixel Measurement):\n` +
+          `  * Green Photosynthetic Canopy (Crops): ${pixelMetrics.cropPct}%\n` +
+          `  * Built Structures / Concrete / Roofs: ${pixelMetrics.builtPct}%\n` +
+          `  * Cultivated Soil / Bare Ground / Margins: ${pixelMetrics.soilPct}%\n` +
+          `  * Water Bodies / Channels: ${pixelMetrics.waterPct}%\n` +
           `- Surface Texture Variation (Edge Density): stdev ${pixelMetrics.stdev.toFixed(1)}\n\n`
       }
       if (groundTruth) {

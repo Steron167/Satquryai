@@ -35,6 +35,7 @@ interface LeafletMapProps {
   isLeftPanelOpen?: boolean
   onToggleLeftPanel?: () => void
   onToggleFlood?: () => void
+  onClearAllMarkings?: () => void
 }
 
 function GlobeIcon({ className }: { className?: string }) {
@@ -90,6 +91,7 @@ export function LeafletMap({
   isLeftPanelOpen,
   onToggleLeftPanel,
   onToggleFlood,
+  onClearAllMarkings,
 }: LeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -193,15 +195,38 @@ export function LeafletMap({
     })
 
     map.on("mousemove", (e) => {
-      setCursorPos({
-        lat: Number(e.latlng.lat.toFixed(4)),
-        lon: Number(e.latlng.lng.toFixed(4)),
-      })
+      if (e?.latlng && Number.isFinite(e.latlng.lat) && Number.isFinite(e.latlng.lng)) {
+        setCursorPos({
+          lat: Number(e.latlng.lat.toFixed(4)),
+          lon: Number(e.latlng.lng.toFixed(4)),
+        })
+      }
     })
+
+    // Auto ResizeObserver to prevent (NaN, NaN) projection errors when switching tabs/resizing
+    let resizeObserver: ResizeObserver | null = null
+    if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        if (
+          mapRef.current &&
+          containerRef.current &&
+          containerRef.current.clientWidth > 50 &&
+          containerRef.current.clientHeight > 50
+        ) {
+          try {
+            mapRef.current.invalidateSize({ animate: false })
+          } catch (e) {
+            console.warn("map.invalidateSize suppressed:", e)
+          }
+        }
+      })
+      resizeObserver.observe(containerRef.current)
+    }
 
     mapRef.current = map
 
     return () => {
+      resizeObserver?.disconnect()
       map.remove()
       mapRef.current = null
     }
@@ -442,7 +467,12 @@ export function LeafletMap({
         }
       })
 
-      if (mapRef.current) {
+      if (
+        mapRef.current &&
+        containerRef.current &&
+        containerRef.current.clientWidth > 50 &&
+        containerRef.current.clientHeight > 50
+      ) {
         if (targetBounds && targetBounds.isValid()) {
           try {
             mapRef.current.flyToBounds(targetBounds.pad(0.15), { duration: 1.2, maxZoom: 17 })
@@ -574,14 +604,37 @@ export function LeafletMap({
       })
 
       // If user hasn't explicitly selected an AOI, fly to show all detected boxes smoothly
-      if (!selectedAOI && allBoxBounds.length > 0 && mapRef.current && !state.flood) {
-        const validBounds = allBoxBounds.filter((b) => b && typeof b.isValid === "function" && b.isValid())
+      if (
+        !selectedAOI &&
+        allBoxBounds.length > 0 &&
+        mapRef.current &&
+        containerRef.current &&
+        containerRef.current.clientWidth > 50 &&
+        containerRef.current.clientHeight > 50 &&
+        !state.flood
+      ) {
+        const validBounds = allBoxBounds.filter(
+          (b) =>
+            b &&
+            typeof b.isValid === "function" &&
+            b.isValid() &&
+            Number.isFinite(b.getSouth()) &&
+            Number.isFinite(b.getNorth()) &&
+            Number.isFinite(b.getWest()) &&
+            Number.isFinite(b.getEast())
+        )
         if (validBounds.length > 0) {
           let combinedBounds = validBounds[0]
           for (let i = 1; i < validBounds.length; i++) {
             combinedBounds = combinedBounds.extend(validBounds[i])
           }
-          if (combinedBounds && typeof combinedBounds.isValid === "function" && combinedBounds.isValid()) {
+          if (
+            combinedBounds &&
+            typeof combinedBounds.isValid === "function" &&
+            combinedBounds.isValid() &&
+            Number.isFinite(combinedBounds.getSouth()) &&
+            Number.isFinite(combinedBounds.getNorth())
+          ) {
             try {
               mapRef.current.flyToBounds(combinedBounds.pad(0.2), { duration: 1.2, maxZoom: 16 })
             } catch (flyErr) {
@@ -701,10 +754,10 @@ export function LeafletMap({
       const areaKm2 = Number(Math.max(0.01, latDist * lonDist).toFixed(2))
 
       const aoi: SelectedArea = {
-        xmin: 20,
-        ymin: 20,
-        xmax: 80,
-        ymax: 80,
+        xmin: 0,
+        ymin: 0,
+        xmax: 100,
+        ymax: 100,
         bounds: { north, south, east, west },
         areaKm2,
       }
@@ -839,10 +892,10 @@ export function LeafletMap({
       const areaKm2 = Number(Math.max(0.01, latDist * lonDist).toFixed(2))
 
       const aoi: SelectedArea = {
-        xmin: 20,
-        ymin: 20,
-        xmax: 80,
-        ymax: 80,
+        xmin: 0,
+        ymin: 0,
+        xmax: 100,
+        ymax: 100,
         bounds: { north, south, east, west },
         areaKm2,
       }
@@ -856,7 +909,7 @@ export function LeafletMap({
       map.dragging.enable()
       setToolMode("navigate")
     },
-    [isDrawing, dragStart, onSelectArea]
+    [isDrawing, dragStart, onSelectArea, scene]
   )
 
   const handleClearAOI = useCallback(() => {
@@ -865,8 +918,11 @@ export function LeafletMap({
       selectionRectRef.current.remove()
       selectionRectRef.current = null
     }
+    detectionMarkersRef.current?.clearLayers()
+    floodLayerGroupRef.current?.clearLayers()
     if (onSelectArea) onSelectArea(null)
-  }, [onSelectArea])
+    if (onClearAllMarkings) onClearAllMarkings()
+  }, [onSelectArea, onClearAllMarkings])
 
   return (
     <div
@@ -918,10 +974,30 @@ export function LeafletMap({
           <button
             type="button"
             onClick={handleClearAOI}
-            className="ml-1 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-slate-800 transition-colors cursor-pointer text-xs"
-            title="Clear Area Selection"
+            className="ml-1 flex items-center gap-1 rounded px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-slate-800 transition-colors cursor-pointer text-xs"
+            title="Clear Area Selection & Markings"
           >
-            ✕
+            <span>✕</span>
+            <span className="hidden sm:inline text-[10px]">Clear Marks</span>
+          </button>
+        </div>
+      )}
+
+      {/* Active Detection Grounding Banner with Clear Button (when AOI is not active) */}
+      {!selectedAOI && !state.flood && state.detections && state.dynamicBoxes && state.dynamicBoxes.length > 0 && (
+        <div className="pointer-events-auto absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2.5 rounded-xl border border-amber-500/80 bg-slate-950/95 px-3 py-1.5 text-xs text-amber-200 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2">
+          <span className="size-2 rounded-full bg-amber-400 animate-ping" />
+          <span className="font-semibold text-xs font-mono">
+            {state.dynamicBoxes.length} Ground Features Marked
+          </span>
+          <button
+            type="button"
+            onClick={handleClearAOI}
+            className="flex items-center gap-1 rounded-lg bg-amber-500/20 px-2 py-0.5 text-[11px] font-bold text-amber-300 hover:bg-amber-500/30 border border-amber-500/40 transition-all cursor-pointer"
+            title="Clear all detection bounding boxes from map"
+          >
+            <span>✕ निशान हटाएं</span>
+            <span className="hidden sm:inline text-[9px] opacity-80">(Clear Marks)</span>
           </button>
         </div>
       )}

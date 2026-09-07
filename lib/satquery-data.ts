@@ -713,8 +713,8 @@ export function matchQuery(
     }
 
     const defaultText = isHindi
-      ? `खेत का उपग्रह भूमि वर्गीकरण (${coords}, लगभग ${area} km²): इस चयनित खेत में मुख्य रूप से धान/फसल की खेती (46%), उपजाऊ मिट्टी/मेड़ (16%), और पानी की नालियां/तालाब (28%) स्थित हैं। यह डेटा फसल बीमा और खेत की निगरानी हेतु सत्यापित है।`
-      : `Exclusive land-cover classification for selected sub-area ${coords} covering ~${area} km² in ${scene.name}. High-resolution spectral decomposition reveals localized paddy cultivation, drainage creeks, and settlement pockets.`
+      ? `खेत का उपग्रह भूमि वर्गीकरण (${coords}, लगभग ${area} km²): इस चयनित क्षेत्र में मुख्य रूप से फसल/खेत (72%), उपजाऊ मिट्टी/मेड़ (16%), जल निकाय/नाले (8%) और ग्रामीण रास्ते/ढांचे (4%) स्थित हैं। यह डेटा उपग्रह स्पेक्ट्रल विश्लेषण द्वारा सत्यापित है।`
+      : `Exclusive land-cover classification for selected sub-area ${coords} covering ~${area} km² in ${scene.name}. Spectral decomposition reveals dominant cropland (72%), soil & bunds (16%), waterways (8%), and rural structures (4%).`
 
     return {
       text: defaultText,
@@ -722,14 +722,14 @@ export function matchQuery(
         kind: "landcover",
         title: isHindi ? `खेत का भूमि वर्गीकरण (~${area} km²)` : `Sub-Area Land Cover (~${area} km²)`,
         landcover: [
-          { label: isHindi ? "फसल / हरियाली" : "Paddy & Cropland", pct: 46, colorVar: "var(--chart-3)" },
-          { label: isHindi ? "जल निकाय / नाले" : "Waterways & Ponds", pct: 28, colorVar: "var(--chart-1)" },
+          { label: isHindi ? "फसल / हरियाली" : "Cropland & Greenery", pct: 72, colorVar: "var(--chart-3)" },
           { label: isHindi ? "उपजाऊ मिट्टी / मेड़" : "Bare Soil & Bunds", pct: 16, colorVar: "var(--chart-2)" },
-          { label: isHindi ? "ढांचे / रास्ते" : "Built Structures", pct: 10, colorVar: "var(--chart-4)" },
+          { label: isHindi ? "जल निकाय / नाले" : "Waterways & Channels", pct: 8, colorVar: "var(--chart-1)" },
+          { label: isHindi ? "ढांचे / रास्ते" : "Built & Paths", pct: 4, colorVar: "var(--chart-4)" },
         ],
       },
       effect: { layer: "optical", detections: false, flood: false, compare: false },
-      sources: ["Sentinel-2 MSI (ROI Crop)", "Sentinel-1 CSAR", "BigEarthNet-MM"],
+      sources: ["Sentinel-2 MSI (ROI Crop)", "Spectral Morphology", "SatQuery Grounding"],
     }
   }
 

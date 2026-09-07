@@ -45,6 +45,7 @@ interface ImageViewerProps {
   onToggleLeftPanel?: () => void
   onLayerChange?: (layer: LayerId) => void
   onToggleFlood?: () => void
+  onClearAllMarkings?: () => void
 }
 
 export function ImageViewer({
@@ -57,6 +58,7 @@ export function ImageViewer({
   onToggleLeftPanel,
   onLayerChange,
   onToggleFlood,
+  onClearAllMarkings,
 }: ImageViewerProps) {
   // Mode & navigation states
   const [toolMode, setToolMode] = useState<"navigate" | "select">("navigate")
@@ -286,6 +288,17 @@ export function ImageViewer({
                 <span className="size-1.5 rounded-full bg-emerald-400 animate-ping" />
               )}
             </button>
+            {(state.selectedAOI || (state.dynamicBoxes && state.dynamicBoxes.length > 0) || state.flood) && (
+              <button
+                type="button"
+                onClick={onClearAllMarkings}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-rose-300 hover:text-rose-100 hover:bg-rose-950/60 border border-rose-500/30 transition-all cursor-pointer"
+                title="Clear all selected areas and detection boxes from map"
+              >
+                <X className="size-3 text-rose-400" />
+                <span className="hidden sm:inline">Clear Marks</span>
+              </button>
+            )}
           </div>
 
           {/* Google Maps Hybrid Labels Toggle */}
@@ -355,6 +368,7 @@ export function ImageViewer({
           isLeftPanelOpen={isLeftPanelOpen}
           onToggleLeftPanel={onToggleLeftPanel}
           onToggleFlood={onToggleFlood}
+          onClearAllMarkings={onClearAllMarkings}
         />
       </div>
     </div>

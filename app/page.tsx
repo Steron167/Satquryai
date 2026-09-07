@@ -423,6 +423,16 @@ export default function Page() {
     setViewer((prev) => ({ ...prev, layer, compare: false }))
   }, [])
 
+  const handleClearAllMarkings = useCallback(() => {
+    setViewer((prev) => ({
+      ...prev,
+      selectedAOI: null,
+      dynamicBoxes: [],
+      detections: false,
+      flood: false,
+    }))
+  }, [])
+
   // Cleanup demo timers on unmount
   useEffect(() => {
     return () => {
@@ -603,6 +613,7 @@ export default function Page() {
               onToggleLeftPanel={() => setIsLeftPanelOpen((prev) => !prev)}
               onLayerChange={handleLayerChange}
               onToggleFlood={() => setViewer((prev) => ({ ...prev, flood: !prev.flood }))}
+              onClearAllMarkings={handleClearAllMarkings}
             />
           </div>
 
@@ -622,7 +633,7 @@ export default function Page() {
               onSend={handleSend}
               activeSceneId={selectedSceneId}
               activeAOI={viewer.selectedAOI}
-              onClearAOI={() => setViewer((prev) => ({ ...prev, selectedAOI: null }))}
+              onClearAOI={handleClearAllMarkings}
               isExpanded={isChatExpanded}
               onToggleExpand={() => setIsChatExpanded((prev) => !prev)}
             />
@@ -648,8 +659,12 @@ export default function Page() {
             </div>
           )}
 
-          {/* Tab 1: Map Tab */}
-          <div className={`relative flex-1 min-h-0 w-full h-full overflow-hidden ${mobileTab === "map" ? "flex flex-col" : "hidden"}`}>
+          {/* Tab 1: Map Tab (Preserved in DOM to prevent Leaflet dimension collapse and NaN crashes) */}
+          <div
+            className={`relative flex-1 min-h-0 w-full h-full overflow-hidden ${
+              mobileTab === "map" ? "flex flex-col z-10" : "invisible pointer-events-none absolute inset-0 -z-10"
+            }`}
+          >
             <ImageViewer
               state={viewer}
               scene={activeScene}
@@ -663,6 +678,7 @@ export default function Page() {
               onToggleLeftPanel={() => setMobileTab("places")}
               onLayerChange={handleLayerChange}
               onToggleFlood={() => setViewer((prev) => ({ ...prev, flood: !prev.flood }))}
+              onClearAllMarkings={handleClearAllMarkings}
             />
 
             {/* Floating Map Quick Controls for Mobile Farmers */}
@@ -721,6 +737,16 @@ export default function Page() {
                 >
                   🌊 बाढ़
                 </button>
+                {(viewer.selectedAOI || (viewer.dynamicBoxes && viewer.dynamicBoxes.length > 0) || viewer.flood) && (
+                  <button
+                    type="button"
+                    onClick={handleClearAllMarkings}
+                    className="rounded-full bg-rose-500/20 border border-rose-500/50 px-2 py-1 text-[10px] font-bold text-rose-300 shadow-sm hover:bg-rose-500/30 transition-all cursor-pointer whitespace-nowrap"
+                    title="Clear all markings from map"
+                  >
+                    ✕ निशान हटाएं
+                  </button>
+                )}
               </div>
 
               <button
@@ -744,7 +770,7 @@ export default function Page() {
               onSend={handleSend}
               activeSceneId={selectedSceneId}
               activeAOI={viewer.selectedAOI}
-              onClearAOI={() => setViewer((prev) => ({ ...prev, selectedAOI: null }))}
+              onClearAOI={handleClearAllMarkings}
               isExpanded={true}
               onCloseMobileDrawer={() => setMobileTab("map")}
             />
