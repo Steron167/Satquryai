@@ -16,7 +16,6 @@ import {
   Droplets,
   Sun,
   ChevronRight,
-  Globe,
 } from "lucide-react"
 import type { ViewerState, SelectedArea } from "./types"
 import type { SceneMeta, LayerId, DetectionBox } from "@/lib/satquery-data"
@@ -36,6 +35,25 @@ interface LeafletMapProps {
   isLeftPanelOpen?: boolean
   onToggleLeftPanel?: () => void
   onToggleFlood?: () => void
+}
+
+function GlobeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+      <path d="M2 12h20" />
+    </svg>
+  )
 }
 
 function parseCenter(scene: SceneMeta): [number, number] {
@@ -873,7 +891,7 @@ export function LeafletMap({
         <div className="pointer-events-auto absolute bottom-14 left-3 z-[1000] flex flex-col gap-1.5 rounded-xl border border-blue-400/50 bg-slate-950/95 p-3 text-xs text-blue-200 shadow-2xl backdrop-blur-md max-w-xs animate-in fade-in slide-in-from-bottom-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 font-bold text-[11px] text-blue-300">
-              <Globe className="size-4 text-blue-400" />
+              <GlobeIcon className="size-4 text-blue-400" />
               <span>NASA EOSDIS · GIBS</span>
             </div>
             <span className="font-mono text-[10px] text-blue-300 bg-blue-950/70 px-1.5 py-0.5 rounded border border-blue-400/30">
@@ -963,7 +981,7 @@ export function LeafletMap({
           }`}
           title="NASA GIBS Daily MODIS / VIIRS Earthdata"
         >
-          <Globe className="size-3" />
+          <GlobeIcon className="size-3" />
           <span>NASA</span>
         </button>
       </div>

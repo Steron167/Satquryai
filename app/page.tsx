@@ -12,7 +12,6 @@ import {
   Play,
   Square,
   Sun,
-  Globe,
   MessageSquare,
 } from "lucide-react"
 import { AppHeader } from "@/components/satquery/app-header"
