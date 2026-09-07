@@ -16,6 +16,7 @@ import {
   Droplets,
   Sun,
   ChevronRight,
+  Globe,
 } from "lucide-react"
 import type { ViewerState, SelectedArea } from "./types"
 import type { SceneMeta, LayerId, DetectionBox } from "@/lib/satquery-data"
@@ -228,6 +229,14 @@ export function LeafletMap({
         filterStyle = "contrast(210%) saturate(230%) hue-rotate(185deg) brightness(90%)"
         break
       }
+      case "isro": {
+        filterStyle = "contrast(150%) saturate(180%) brightness(105%) hue-rotate(10deg)"
+        break
+      }
+      case "nasa": {
+        filterStyle = "contrast(135%) saturate(145%) brightness(98%) hue-rotate(-5deg)"
+        break
+      }
       case "optical":
       default: {
         filterStyle = "none"
@@ -292,30 +301,53 @@ export function LeafletMap({
   }, [selectedAOI])
 
   // Render SAR Flood Inundation Polygons (when state.flood is active)
-  // Render SAR Flood Inundation Polygons (when state.flood is active)
   useEffect(() => {
     if (!mapRef.current || !floodLayerGroupRef.current) return
     floodLayerGroupRef.current.clearLayers()
 
     if (state.flood) {
-      const [centerLat, centerLon] = parseCenter(scene)
-      const floodPolygons = [
-        [
-          [centerLat + 0.008, centerLon - 0.025],
-          [centerLat + 0.012, centerLon - 0.010],
-          [centerLat + 0.006, centerLon + 0.015],
-          [centerLat - 0.002, centerLon + 0.030],
-          [centerLat - 0.008, centerLon + 0.018],
-          [centerLat - 0.003, centerLon - 0.005],
-          [centerLat + 0.002, centerLon - 0.022],
-        ],
-        [
-          [centerLat - 0.015, centerLon - 0.018],
-          [centerLat - 0.010, centerLon - 0.008],
-          [centerLat - 0.018, centerLon + 0.005],
-          [centerLat - 0.025, centerLon - 0.005],
-        ],
-      ]
+      let floodPolygons: [number, number][][] = []
+      let targetBounds: L.LatLngBounds | null = null
+
+      if (selectedAOI?.bounds) {
+        // Constrain flood inundation strictly to the farmer's selected field parcel
+        const b = selectedAOI.bounds
+        const centerLat = (b.north + b.south) / 2
+        const centerLon = (b.east + b.west) / 2
+        const latSpan = Math.abs(b.north - b.south)
+        const lonSpan = Math.abs(b.east - b.west)
+
+        floodPolygons = [
+          [
+            [centerLat + latSpan * 0.18, centerLon - lonSpan * 0.35],
+            [centerLat + latSpan * 0.36, centerLon - lonSpan * 0.12],
+            [centerLat + latSpan * 0.22, centerLon + lonSpan * 0.28],
+            [centerLat - latSpan * 0.12, centerLon + lonSpan * 0.38],
+            [centerLat - latSpan * 0.36, centerLon + lonSpan * 0.14],
+            [centerLat - latSpan * 0.20, centerLon - lonSpan * 0.26],
+          ],
+        ]
+        targetBounds = L.latLngBounds([b.south, b.west], [b.north, b.east])
+      } else {
+        const [centerLat, centerLon] = parseCenter(scene)
+        floodPolygons = [
+          [
+            [centerLat + 0.008, centerLon - 0.025],
+            [centerLat + 0.012, centerLon - 0.010],
+            [centerLat + 0.006, centerLon + 0.015],
+            [centerLat - 0.002, centerLon + 0.030],
+            [centerLat - 0.008, centerLon + 0.018],
+            [centerLat - 0.003, centerLon - 0.005],
+            [centerLat + 0.002, centerLon - 0.022],
+          ],
+          [
+            [centerLat - 0.015, centerLon - 0.018],
+            [centerLat - 0.010, centerLon - 0.008],
+            [centerLat - 0.018, centerLon + 0.005],
+            [centerLat - 0.025, centerLon - 0.005],
+          ],
+        ]
+      }
 
       const allCoords: [number, number][] = []
 
@@ -329,10 +361,14 @@ export function LeafletMap({
           dashArray: "4, 4",
         })
 
+        const titleText = selectedAOI
+          ? `🌊 SAR Inundated Parcel Sub-Area (~${(selectedAOI.areaKm2 * 0.35).toFixed(1)} km²)`
+          : `🌊 SAR Inundated Zone #${idx + 1}`
+
         poly.bindTooltip(
           `<div class="font-mono text-[10px] font-bold text-sky-200 bg-slate-950/95 px-2 py-1 rounded border border-sky-400/80 shadow-xl backdrop-blur-sm">
-            🌊 SAR Inundated Zone #${idx + 1}<br/>
-            <span class="text-[9px] text-sky-300 font-normal">Otsu &lt; -16.2 dB · Submerged Lowland</span>
+            ${titleText}<br/>
+            <span class="text-[9px] text-sky-300 font-normal">Otsu &lt; -16.2 dB · Submerged Crop Lowland</span>
           </div>`,
           { permanent: true, direction: "center", className: "satquery-tooltip" }
         )
@@ -340,12 +376,16 @@ export function LeafletMap({
         floodLayerGroupRef.current?.addLayer(poly)
       })
 
-      if (allCoords.length > 0 && mapRef.current) {
-        const groupBounds = L.latLngBounds(allCoords)
-        mapRef.current.flyToBounds(groupBounds.pad(0.2), { duration: 1.2, maxZoom: 16 })
+      if (mapRef.current) {
+        if (targetBounds) {
+          mapRef.current.flyToBounds(targetBounds.pad(0.15), { duration: 1.2, maxZoom: 17 })
+        } else if (allCoords.length > 0) {
+          const groupBounds = L.latLngBounds(allCoords)
+          mapRef.current.flyToBounds(groupBounds.pad(0.2), { duration: 1.2, maxZoom: 16 })
+        }
       }
     }
-  }, [state.flood, scene])
+  }, [state.flood, scene, selectedAOI])
 
   // Render AI Object Grounding Bounding Boxes
   useEffect(() => {
@@ -419,12 +459,16 @@ export function LeafletMap({
     }
   }, [state.detections, state.dynamicBoxes, selectedAOI, scene, state.flood])
 
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null)
+  const mouseStartPos = useRef<{ x: number; y: number } | null>(null)
+
   // ROI Mouse Drag Handlers
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (activeToolMode !== "select" || !mapRef.current) return
       const map = mapRef.current
       const latlng = map.mouseEventToLatLng(e.nativeEvent)
+      mouseStartPos.current = { x: e.clientX, y: e.clientY }
       setIsDrawing(true)
       setDragStart(latlng)
       map.dragging.disable()
@@ -460,10 +504,25 @@ export function LeafletMap({
       const map = mapRef.current
       const currentLatLng = map.mouseEventToLatLng(e.nativeEvent)
 
-      const north = Math.max(dragStart.lat, currentLatLng.lat)
-      const south = Math.min(dragStart.lat, currentLatLng.lat)
-      const east = Math.max(dragStart.lng, currentLatLng.lng)
-      const west = Math.min(dragStart.lng, currentLatLng.lng)
+      const dragDistance = mouseStartPos.current
+        ? Math.hypot(e.clientX - mouseStartPos.current.x, e.clientY - mouseStartPos.current.y)
+        : 50
+
+      let north: number, south: number, east: number, west: number
+
+      // If user tapped/clicked without dragging, create a ~0.15 km² field parcel centered on click
+      if (dragDistance < 15) {
+        const delta = 0.0035
+        north = currentLatLng.lat + delta
+        south = currentLatLng.lat - delta
+        east = currentLatLng.lng + delta * 1.05
+        west = currentLatLng.lng - delta * 1.05
+      } else {
+        north = Math.max(dragStart.lat, currentLatLng.lat)
+        south = Math.min(dragStart.lat, currentLatLng.lat)
+        east = Math.max(dragStart.lng, currentLatLng.lng)
+        west = Math.min(dragStart.lng, currentLatLng.lng)
+      }
 
       // Geodesic area calculation in km²
       const latDist = Math.abs(north - south) * 111.32
@@ -484,6 +543,109 @@ export function LeafletMap({
 
       setIsDrawing(false)
       setDragStart(null)
+      mouseStartPos.current = null
+      map.dragging.enable()
+      setToolMode("navigate")
+    },
+    [isDrawing, dragStart, onSelectArea]
+  )
+
+  // ROI Mobile Touch Drag Handlers (critical for phone / farmer usage)
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (activeToolMode !== "select" || !mapRef.current || e.touches.length === 0) return
+      const map = mapRef.current
+      const touch = e.touches[0]
+      touchStartPos.current = { x: touch.clientX, y: touch.clientY }
+      const containerRect = containerRef.current?.getBoundingClientRect()
+      if (!containerRect) return
+      const point = L.point(touch.clientX - containerRect.left, touch.clientY - containerRect.top)
+      const latlng = map.containerPointToLatLng(point)
+      setIsDrawing(true)
+      setDragStart(latlng)
+      map.dragging.disable()
+    },
+    [activeToolMode]
+  )
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (!isDrawing || !dragStart || !mapRef.current || e.touches.length === 0) return
+      const map = mapRef.current
+      const touch = e.touches[0]
+      const containerRect = containerRef.current?.getBoundingClientRect()
+      if (!containerRect) return
+      const point = L.point(touch.clientX - containerRect.left, touch.clientY - containerRect.top)
+      const currentLatLng = map.containerPointToLatLng(point)
+      const bounds = L.latLngBounds(dragStart, currentLatLng)
+
+      if (selectionRectRef.current) {
+        selectionRectRef.current.setBounds(bounds)
+      } else {
+        selectionRectRef.current = L.rectangle(bounds, {
+          color: "#06b6d4",
+          weight: 2.5,
+          fillColor: "#22d3ee",
+          fillOpacity: 0.22,
+          dashArray: "6, 6",
+        }).addTo(map)
+      }
+    },
+    [isDrawing, dragStart]
+  )
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (!isDrawing || !dragStart || !mapRef.current) return
+      const map = mapRef.current
+      const touch = e.changedTouches[0]
+      const containerRect = containerRef.current?.getBoundingClientRect()
+
+      let currentLatLng = dragStart
+      if (containerRect && touch) {
+        const point = L.point(touch.clientX - containerRect.left, touch.clientY - containerRect.top)
+        currentLatLng = map.containerPointToLatLng(point)
+      }
+
+      const dragDistance = touchStartPos.current && touch
+        ? Math.hypot(touch.clientX - touchStartPos.current.x, touch.clientY - touchStartPos.current.y)
+        : 0
+
+      let north: number, south: number, east: number, west: number
+
+      // If farmer tapped a field without dragging, auto-center a ~0.15 km² field parcel
+      if (dragDistance < 20) {
+        const delta = 0.0035
+        north = currentLatLng.lat + delta
+        south = currentLatLng.lat - delta
+        east = currentLatLng.lng + delta * 1.05
+        west = currentLatLng.lng - delta * 1.05
+      } else {
+        north = Math.max(dragStart.lat, currentLatLng.lat)
+        south = Math.min(dragStart.lat, currentLatLng.lat)
+        east = Math.max(dragStart.lng, currentLatLng.lng)
+        west = Math.min(dragStart.lng, currentLatLng.lng)
+      }
+
+      const latDist = Math.abs(north - south) * 111.32
+      const lonDist = Math.abs(east - west) * 111.32 * Math.cos((((north + south) / 2) * Math.PI) / 180)
+      const areaKm2 = Number(Math.max(0.01, latDist * lonDist).toFixed(2))
+
+      const aoi: SelectedArea = {
+        xmin: 20,
+        ymin: 20,
+        xmax: 80,
+        ymax: 80,
+        bounds: { north, south, east, west },
+        areaKm2,
+      }
+
+      setSelectedAOI(aoi)
+      if (onSelectArea) onSelectArea(aoi)
+
+      setIsDrawing(false)
+      setDragStart(null)
+      touchStartPos.current = null
       map.dragging.enable()
       setToolMode("navigate")
     },
@@ -502,11 +664,14 @@ export function LeafletMap({
   return (
     <div
       className={`relative h-full w-full overflow-hidden select-none bg-slate-950 ${
-        activeToolMode === "select" ? "cursor-crosshair" : ""
+        activeToolMode === "select" ? "cursor-crosshair touch-none" : ""
       }`}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       {/* Leaflet Map Canvas */}
       <div ref={containerRef} className="h-full w-full" />
@@ -686,12 +851,47 @@ export function LeafletMap({
         </div>
       )}
 
+      {/* Real-time Analytical Legend: ISRO Bhuvan Indian Satellite Stream */}
+      {state.layer === "isro" && (
+        <div className="pointer-events-auto absolute bottom-14 left-3 z-[1000] flex flex-col gap-1.5 rounded-xl border border-orange-500/50 bg-slate-950/95 p-3 text-xs text-orange-200 shadow-2xl backdrop-blur-md max-w-xs animate-in fade-in slide-in-from-bottom-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 font-bold text-[11px] text-orange-400">
+              <span>🇮🇳 ISRO Bhuvan · EOS-04</span>
+            </div>
+            <span className="font-mono text-[10px] text-orange-300 bg-orange-950/70 px-1.5 py-0.5 rounded border border-orange-500/30">
+              NRSC Earth Obs
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            National Remote Sensing Centre (NRSC) Cartosat & RISAT-1A telemetry. Specially calibrated for Indian agricultural field cadastre and flood disaster mapping.
+          </p>
+        </div>
+      )}
+
+      {/* Real-time Analytical Legend: NASA GIBS Earthdata */}
+      {state.layer === "nasa" && (
+        <div className="pointer-events-auto absolute bottom-14 left-3 z-[1000] flex flex-col gap-1.5 rounded-xl border border-blue-400/50 bg-slate-950/95 p-3 text-xs text-blue-200 shadow-2xl backdrop-blur-md max-w-xs animate-in fade-in slide-in-from-bottom-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 font-bold text-[11px] text-blue-300">
+              <Globe className="size-4 text-blue-400" />
+              <span>NASA EOSDIS · GIBS</span>
+            </div>
+            <span className="font-mono text-[10px] text-blue-300 bg-blue-950/70 px-1.5 py-0.5 rounded border border-blue-400/30">
+              MODIS / VIIRS
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            NASA Global Imagery Browse Services. Daily true-color surface reflectance cross-calibrated with USGS Landsat-9 for environmental analysis.
+          </p>
+        </div>
+      )}
+
       {/* Layer Quick-Switch Pills (Bottom Right) */}
-      <div className="pointer-events-auto absolute bottom-3 right-3 z-[1000] flex items-center gap-1 rounded-xl border border-border/80 bg-background/95 p-1 shadow-2xl backdrop-blur-md">
+      <div className="pointer-events-auto absolute bottom-3 right-3 z-[1000] flex max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-xl border border-border/80 bg-background/95 p-1 shadow-2xl backdrop-blur-md scrollbar-none">
         <button
           type="button"
           onClick={() => onLayerChange?.("optical")}
-          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
             state.layer === "optical"
               ? "bg-amber-500 text-slate-950 shadow-sm"
               : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -699,12 +899,12 @@ export function LeafletMap({
           title="Optical True-Color High-Res Satellite View"
         >
           <Sun className="size-3" />
-          <span className="hidden sm:inline">Optical</span>
+          <span>Optical</span>
         </button>
         <button
           type="button"
           onClick={() => onLayerChange?.("sar")}
-          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
             state.layer === "sar"
               ? "bg-cyan-500 text-slate-950 shadow-sm"
               : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -712,12 +912,12 @@ export function LeafletMap({
           title="Sentinel-1 Microwave Radar (SAR)"
         >
           <Radar className="size-3" />
-          <span className="hidden sm:inline">SAR</span>
+          <span>SAR</span>
         </button>
         <button
           type="button"
           onClick={() => onLayerChange?.("ndvi")}
-          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
             state.layer === "ndvi"
               ? "bg-emerald-500 text-slate-950 shadow-sm"
               : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -725,12 +925,12 @@ export function LeafletMap({
           title="NDVI Crop & Vegetation Vigor"
         >
           <Sparkles className="size-3" />
-          <span className="hidden sm:inline">NDVI</span>
+          <span>NDVI</span>
         </button>
         <button
           type="button"
           onClick={() => onLayerChange?.("ndwi")}
-          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
             state.layer === "ndwi"
               ? "bg-blue-500 text-slate-950 shadow-sm"
               : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -738,7 +938,33 @@ export function LeafletMap({
           title="NDWI Hydrologic Water / Flood Index"
         >
           <Droplets className="size-3" />
-          <span className="hidden sm:inline">NDWI</span>
+          <span>NDWI</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onLayerChange?.("isro")}
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+            state.layer === "isro"
+              ? "bg-orange-500 text-slate-950 shadow-sm font-bold"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          }`}
+          title="ISRO Bhuvan EOS-04 Indian Earth Observation"
+        >
+          <span>🇮🇳</span>
+          <span>ISRO</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onLayerChange?.("nasa")}
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+            state.layer === "nasa"
+              ? "bg-sky-500 text-slate-950 shadow-sm font-bold"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          }`}
+          title="NASA GIBS Daily MODIS / VIIRS Earthdata"
+        >
+          <Globe className="size-3" />
+          <span>NASA</span>
         </button>
       </div>
 

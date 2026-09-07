@@ -1,6 +1,20 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useState, useRef, useEffect } from "react"
+import {
+  Sparkles,
+  ChevronUp,
+  ChevronDown,
+  Radar,
+  Droplets,
+  BoxSelect,
+  X,
+  Play,
+  Square,
+  Sun,
+  Globe,
+  MessageSquare,
+} from "lucide-react"
 import { AppHeader } from "@/components/satquery/app-header"
 import { ScenePanel } from "@/components/satquery/scene-panel"
 import { ImageViewer } from "@/components/satquery/image-viewer"
@@ -80,6 +94,13 @@ export default function Page() {
   // Panel layout toggle states
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
+  const [isMobileChatOpen, setIsMobileChatOpen] = useState(false)
+
+  // Automated Showcase / Live Judges Demonstration State
+  const [isDemoRunning, setIsDemoRunning] = useState(false)
+  const [demoStep, setDemoStep] = useState(1)
+  const [demoStatus, setDemoStatus] = useState("")
+  const demoTimersRef = useRef<NodeJS.Timeout[]>([])
 
   // Modal dialog states
   const [isUploadOpen, setIsUploadOpen] = useState(false)
@@ -274,6 +295,7 @@ export default function Page() {
       }
       setMessages((prev) => [...prev, userMsg])
       setIsThinking(true)
+      setIsMobileChatOpen(true)
 
       const activeAOI = overrideAOI !== undefined ? overrideAOI : viewer.selectedAOI
 
@@ -389,18 +411,120 @@ export default function Page() {
     setViewer((prev) => ({ ...prev, layer, compare: false }))
   }, [])
 
+  // Cleanup demo timers on unmount
+  useEffect(() => {
+    return () => {
+      demoTimersRef.current.forEach(clearTimeout)
+    }
+  }, [])
+
+  const stopJudgesDemo = useCallback(() => {
+    demoTimersRef.current.forEach(clearTimeout)
+    demoTimersRef.current = []
+    setIsDemoRunning(false)
+    setDemoStatus("")
+  }, [])
+
+  const startJudgesDemo = useCallback(() => {
+    stopJudgesDemo()
+    setIsDemoRunning(true)
+    setDemoStep(1)
+    setDemoStatus("Step 1/5: Loading Sentinel-2 Optical Multi-spectral Scene (Godavari Basin / Agricultural Belt)...")
+
+    // Step 1 (0s): Select Godavari agricultural scene, optical layer, clear previous AOI
+    setSelectedSceneId("godavari")
+    setCustomScene(null)
+    setViewer({
+      layer: "optical",
+      detections: false,
+      flood: false,
+      compare: false,
+      zoom: 13,
+      pan: { x: 0, y: 0 },
+      dynamicBoxes: [],
+      selectedAOI: null,
+    })
+
+    const sampleFarmAOI: SelectedArea = {
+      xmin: 28,
+      ymin: 32,
+      xmax: 72,
+      ymax: 68,
+      bounds: { north: 19.894, south: 19.870, east: 74.494, west: 74.464 },
+      areaKm2: 1.35,
+    }
+
+    // Step 2 (3s): Simulate farmer selecting agricultural field parcel (AOI)
+    const t1 = setTimeout(() => {
+      setDemoStep(2)
+      setDemoStatus("Step 2/5: Farmer designates ~1.35 km² crop parcel (Area of Interest / Khet)...")
+      setViewer((prev) => ({
+        ...prev,
+        selectedAOI: sampleFarmAOI,
+      }))
+    }, 3000)
+
+    // Step 3 (6s): Send multimodal inquiry
+    const t2 = setTimeout(() => {
+      setDemoStep(3)
+      setDemoStatus("Step 3/5: AI Multimodal VLM cross-referencing Sentinel-1 SAR & Sentinel-2 Optical...")
+      setIsMobileChatOpen(true)
+      handleSend(
+        "Assess SAR flood inundation and NDVI crop vigor damage inside this designated field parcel (~1.35 km²)",
+        sampleFarmAOI
+      )
+    }, 6000)
+
+    // Step 4 (11s): Sentinel-1 C-band SAR Radar Cloud Penetration & Flood Inundation (< -16dB)
+    const t3 = setTimeout(() => {
+      setDemoStep(4)
+      setDemoStatus("Step 4/5: Sentinel-1 C-Band SAR Radar penetrates monsoon clouds · Flood inundation strictly mapped on field parcel...")
+      setViewer((prev) => ({
+        ...prev,
+        layer: "sar",
+        flood: true,
+        detections: true,
+      }))
+    }, 11000)
+
+    // Step 5 (16s): NDVI Vegetation Vigor Index & Crop Loss Estimation
+    const t4 = setTimeout(() => {
+      setDemoStep(5)
+      setDemoStatus("Step 5/5: Computing NDVI Vegetation Vigor (Healthy canopy vs submerged crop area)...")
+      setViewer((prev) => ({
+        ...prev,
+        layer: "ndvi",
+      }))
+    }, 16000)
+
+    // Step 6 (21s): Open Official Situation Report for Judges
+    const t5 = setTimeout(() => {
+      setDemoStatus("✅ Demonstration Complete: Official ISRO Situation & Insurance Damage Report Generated!")
+      setIsReportOpen(true)
+      const tEnd = setTimeout(() => {
+        setIsDemoRunning(false)
+      }, 6000)
+      demoTimersRef.current.push(tEnd)
+    }, 21000)
+
+    demoTimersRef.current = [t1, t2, t3, t4, t5]
+  }, [handleSend, stopJudgesDemo])
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
-      {/* Navigation Header with Benchmark & Report triggers */}
+      {/* Navigation Header with Benchmark, Report & Judges Demo triggers */}
       <AppHeader
         onOpenBenchmark={() => setIsBenchmarkOpen(true)}
         onOpenReport={() => setIsReportOpen(true)}
         isLeftPanelOpen={isLeftPanelOpen}
         onToggleLeftPanel={() => setIsLeftPanelOpen((prev) => !prev)}
+        onStartDemo={isDemoRunning ? stopJudgesDemo : startJudgesDemo}
+        isDemoRunning={isDemoRunning}
       />
 
+      {/* Main Workspace */}
       <main className="relative flex min-h-0 flex-1 overflow-hidden flex-col lg:flex-row">
-        {/* Left Side: Scene Panel (Collapsible) */}
+        {/* Left Side: Scene Panel (Collapsible - Desktop only) */}
         <div
           className={`relative hidden h-full shrink-0 transition-all duration-300 ease-in-out lg:block ${
             isLeftPanelOpen
@@ -423,8 +547,31 @@ export default function Page() {
           />
         </div>
 
-        {/* Center: Image Viewer */}
-        <div className="relative flex-1 min-h-0 min-w-0 max-lg:h-[42vh] h-full overflow-hidden">
+        {/* Center: Image Viewer (Full-Screen on Mobile, Flexible on Desktop) */}
+        <div className="relative flex-1 min-h-0 min-w-0 h-full w-full overflow-hidden">
+          {/* Judges Live Demo Status Banner */}
+          {isDemoRunning && (
+            <div className="pointer-events-auto absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 rounded-full border border-amber-500/80 bg-slate-950/95 px-4 py-2 text-xs text-amber-200 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 max-w-[95vw]">
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+              </span>
+              <div className="flex items-center gap-2 overflow-hidden">
+                <span className="font-bold text-amber-300 font-mono shrink-0">🏆 DEMO</span>
+                <span className="text-border">|</span>
+                <span className="truncate text-foreground font-medium text-[11px] sm:text-xs">{demoStatus}</span>
+              </div>
+              <button
+                type="button"
+                onClick={stopJudgesDemo}
+                className="ml-auto flex items-center gap-1 rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300 hover:bg-amber-500/30 transition-colors shrink-0"
+              >
+                <Square className="size-3 fill-current" />
+                <span>Stop</span>
+              </button>
+            </div>
+          )}
+
           <ImageViewer
             state={viewer}
             scene={activeScene}
@@ -439,16 +586,165 @@ export default function Page() {
             onLayerChange={handleLayerChange}
             onToggleFlood={() => setViewer((prev) => ({ ...prev, flood: !prev.flood }))}
           />
+
+          {/* Floating Mobile Farmer Quick Action Bar (Mobile Only, above peek bar) */}
+          <div className="lg:hidden pointer-events-auto absolute bottom-14 left-2 right-2 z-20 flex items-center justify-around gap-1 rounded-2xl border border-border/80 bg-background/95 p-1.5 shadow-2xl backdrop-blur-md">
+            <button
+              type="button"
+              onClick={() => {
+                if (viewer.selectedAOI) {
+                  setViewer((prev) => ({ ...prev, selectedAOI: null }))
+                } else {
+                  const sampleParcel: SelectedArea = {
+                    xmin: 30,
+                    ymin: 35,
+                    xmax: 70,
+                    ymax: 65,
+                    bounds: { north: 19.892, south: 19.872, east: 74.492, west: 74.468 },
+                    areaKm2: 0.95,
+                  }
+                  setViewer((prev) => ({ ...prev, selectedAOI: sampleParcel }))
+                }
+              }}
+              className={`flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[10px] font-bold transition-all cursor-pointer ${
+                viewer.selectedAOI
+                  ? "bg-cyan-500 text-slate-950 shadow-sm"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+              }`}
+            >
+              <BoxSelect className="size-4" />
+              <span>{viewer.selectedAOI ? "Field (~0.95km²)" : "Select Field"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setViewer((prev) => ({
+                  ...prev,
+                  layer: "sar",
+                  flood: !prev.flood,
+                }))
+              }}
+              className={`flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[10px] font-bold transition-all cursor-pointer ${
+                viewer.flood
+                  ? "bg-sky-500 text-slate-950 shadow-sm"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+              }`}
+            >
+              <Radar className="size-4" />
+              <span>{viewer.flood ? "Flood ON" : "Check Flood"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setViewer((prev) => ({
+                  ...prev,
+                  layer: prev.layer === "ndvi" ? "optical" : "ndvi",
+                }))
+              }}
+              className={`flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[10px] font-bold transition-all cursor-pointer ${
+                viewer.layer === "ndvi"
+                  ? "bg-emerald-500 text-slate-950 shadow-sm"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+              }`}
+            >
+              <Sparkles className="size-4" />
+              <span>Crop Health</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setViewer((prev) => ({
+                  ...prev,
+                  layer: prev.layer === "isro" ? "optical" : "isro",
+                }))
+              }}
+              className={`flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[10px] font-bold transition-all cursor-pointer ${
+                viewer.layer === "isro"
+                  ? "bg-orange-500 text-slate-950 shadow-sm font-bold"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+              }`}
+            >
+              <span className="text-sm leading-none">🇮🇳</span>
+              <span>ISRO</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsMobileChatOpen(true)}
+              className="flex flex-col items-center gap-0.5 rounded-xl bg-primary/15 text-primary hover:bg-primary/25 px-2.5 py-1.5 text-[10px] font-bold transition-all cursor-pointer"
+            >
+              <MessageSquare className="size-4" />
+              <span>Ask AI</span>
+            </button>
+          </div>
+
+          {/* Mobile Bottom Sheet Peek Bar (when drawer is closed) */}
+          {!isMobileChatOpen && (
+            <div
+              onClick={() => setIsMobileChatOpen(true)}
+              className="lg:hidden absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between border-t border-border bg-sidebar/95 px-4 py-2.5 shadow-2xl backdrop-blur-md cursor-pointer hover:bg-sidebar transition-all"
+            >
+              <div className="flex items-center gap-2">
+                <div className="flex size-7 items-center justify-center rounded-full bg-primary/20 text-primary">
+                  <Sparkles className="size-3.5" />
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-semibold flex items-center gap-1.5">
+                    <span>Vision-Language AI Assistant</span>
+                    <span className="text-[9px] bg-primary/20 text-primary px-1.5 py-0.5 rounded font-mono">Bilingual</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Khet me paani · Fasal ki tabiyat (Tap to open)</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-foreground">
+                <span>Open</span>
+                <ChevronUp className="size-3.5" />
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Right Side: Chat Panel (Dynamic Width) */}
+        {/* Mobile Full-Height Sliding Chat Drawer */}
+        {isMobileChatOpen && (
+          <>
+            <div
+              onClick={() => setIsMobileChatOpen(false)}
+              className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity"
+            />
+            <div className="lg:hidden fixed inset-x-0 bottom-0 top-[12vh] z-50 rounded-t-2xl shadow-2xl border-t border-border overflow-hidden bg-sidebar flex flex-col transition-transform duration-300 animate-in slide-in-from-bottom">
+              <div
+                className="flex justify-center pt-2 pb-1 bg-sidebar cursor-pointer"
+                onClick={() => setIsMobileChatOpen(false)}
+              >
+                <div className="h-1.5 w-12 rounded-full bg-muted-foreground/40" />
+              </div>
+              <div className="flex-1 min-h-0">
+                <ChatPanel
+                  messages={messages}
+                  isThinking={isThinking}
+                  onSend={handleSend}
+                  activeSceneId={selectedSceneId}
+                  activeAOI={viewer.selectedAOI}
+                  onClearAOI={() => setViewer((prev) => ({ ...prev, selectedAOI: null }))}
+                  isExpanded={true}
+                  onCloseMobileDrawer={() => setIsMobileChatOpen(false)}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Desktop Side Chat Panel (Dynamic Width) */}
         <div
-          className={`flex h-full min-h-0 shrink-0 flex-col transition-all duration-300 ease-in-out max-lg:flex-1 ${
+          className={`hidden lg:flex h-full min-h-0 shrink-0 flex-col transition-all duration-300 ease-in-out ${
             isChatExpanded
-              ? "w-full lg:w-[38rem] xl:w-[42rem]"
+              ? "w-[38rem] xl:w-[42rem]"
               : isLeftPanelOpen
-              ? "w-full lg:w-[25rem] xl:w-[27rem]"
-              : "w-full lg:w-[32rem] xl:w-[36rem]"
+              ? "w-[25rem] xl:w-[27rem]"
+              : "w-[32rem] xl:w-[36rem]"
           }`}
         >
           <ChatPanel

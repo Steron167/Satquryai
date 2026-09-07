@@ -1,12 +1,14 @@
 "use client"
 
-import { Satellite, Circle, FileText, Cpu, PanelLeftOpen, PanelLeftClose } from "lucide-react"
+import { Satellite, Circle, FileText, Cpu, PanelLeftOpen, PanelLeftClose, Play, Square } from "lucide-react"
 
 interface AppHeaderProps {
   onOpenBenchmark?: () => void
   onOpenReport?: () => void
   isLeftPanelOpen?: boolean
   onToggleLeftPanel?: () => void
+  onStartDemo?: () => void
+  isDemoRunning?: boolean
 }
 
 export function AppHeader({
@@ -14,6 +16,8 @@ export function AppHeader({
   onOpenReport,
   isLeftPanelOpen,
   onToggleLeftPanel,
+  onStartDemo,
+  isDemoRunning,
 }: AppHeaderProps) {
   return (
     <header className="relative z-40 flex items-center justify-between gap-4 border-b border-border bg-sidebar px-4 py-2.5 select-none shadow-sm">
@@ -59,7 +63,27 @@ export function AppHeader({
       </div>
 
       {/* Action Buttons & ISRO Badge */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 sm:gap-2">
+        {onStartDemo && (
+          <button
+            type="button"
+            onClick={onStartDemo}
+            className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-bold transition-all shadow-sm cursor-pointer ${
+              isDemoRunning
+                ? "border-amber-500/80 bg-amber-500/25 text-amber-300 ring-2 ring-amber-500/50 animate-pulse"
+                : "border-emerald-500/60 bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 ring-1 ring-emerald-500/30"
+            }`}
+            title="Automated 30-Second Live Demonstration for Judges"
+          >
+            {isDemoRunning ? (
+              <Square className="size-3.5 fill-current" />
+            ) : (
+              <Play className="size-3.5 fill-current" />
+            )}
+            <span className="whitespace-nowrap">{isDemoRunning ? "Stop Demo" : "▶ Judges Demo"}</span>
+          </button>
+        )}
+
         {onOpenBenchmark && (
           <button
             type="button"

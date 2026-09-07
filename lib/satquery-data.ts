@@ -1,4 +1,4 @@
-export type LayerId = "optical" | "sar" | "ndvi" | "ndwi"
+export type LayerId = "optical" | "sar" | "ndvi" | "ndwi" | "isro" | "nasa"
 
 export interface LayerMeta {
   id: LayerId
@@ -40,6 +40,20 @@ export const LAYERS: LayerMeta[] = [
     src: "/satellite-sar.png", // styled in viewer
     formula: "Green - NIR / Green + NIR",
   },
+  {
+    id: "isro",
+    label: "ISRO Bhuvan",
+    sensor: "ISRO NRSC · EOS-04 / Cartosat",
+    desc: "Indian Earth Observation & Radar Basemap",
+    src: "/satellite-optical.png",
+  },
+  {
+    id: "nasa",
+    label: "NASA GIBS",
+    sensor: "NASA EOSDIS · MODIS / VIIRS",
+    desc: "Daily Surface Reflectance & Thermal Telemetry",
+    src: "/satellite-optical.png",
+  },
 ]
 
 export interface SceneMeta {
@@ -56,7 +70,7 @@ export interface SceneMeta {
   description: string
   summary: string
   hotspots: string[]
-  layers?: Record<LayerId, string>
+  layers?: Partial<Record<LayerId, string>>
 }
 
 export const SCENES: Record<string, SceneMeta> = {

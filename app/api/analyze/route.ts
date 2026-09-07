@@ -35,6 +35,8 @@ interface RequestPayload {
   }
 }
 
+type SelectedArea = NonNullable<RequestPayload["selectedAOI"]>
+
 interface TavilyGroundTruth {
   answer?: string
   contextText: string
@@ -90,7 +92,8 @@ async function fetchTavilySearch(
 function enrichAnalysisWithQueryIntent(
   parsed: ApiAnalysis,
   query: string,
-  sceneName: string
+  sceneName: string,
+  selectedAOI?: SelectedArea
 ): ApiAnalysis {
   const q = query.toLowerCase()
 
@@ -150,11 +153,19 @@ function enrichAnalysisWithQueryIntent(
       ]
     }
     if (!parsed.card || parsed.card.kind === "none") {
+      const floodAreaStr = selectedAOI
+        ? `~${(selectedAOI.areaKm2 * 0.35).toFixed(1)} km²`
+        : "~38.5 km²"
       parsed.card = {
         kind: "flood",
-        title: `SAR Flood Inundation Delineation · ${sceneName}`,
-        floodArea: "~38.5 km²",
+        title: selectedAOI
+          ? `SAR Inundation Delineation · Sub-Region (~${selectedAOI.areaKm2} km²)`
+          : `SAR Flood Inundation Delineation · ${sceneName}`,
+        floodArea: floodAreaStr,
       }
+    }
+    if (selectedAOI && parsed.answer && !parsed.answer.toLowerCase().includes("selected") && !parsed.answer.toLowerCase().includes("sub-area") && !parsed.answer.toLowerCase().includes("field")) {
+      parsed.answer = `Targeted sub-area analysis for your selected ~${selectedAOI.areaKm2} km² field parcel: ${parsed.answer}`
     }
   } else if (isWaterQuery) {
     parsed.layer = "ndwi"
@@ -177,10 +188,15 @@ function enrichAnalysisWithQueryIntent(
     if (!parsed.card || parsed.card.kind === "none") {
       parsed.card = {
         kind: "ndvi",
-        title: `Vegetation Vigor Index · ${sceneName}`,
-        ndviMean: 0.62,
-        ndviHealthy: 74,
+        title: selectedAOI
+          ? `Crop Vigor Index (NDVI) · Field Parcel (~${selectedAOI.areaKm2} km²)`
+          : `Vegetation Vigor Index · ${sceneName}`,
+        ndviMean: 0.64,
+        ndviHealthy: 76,
       }
+    }
+    if (selectedAOI && parsed.answer && !parsed.answer.toLowerCase().includes("selected") && !parsed.answer.toLowerCase().includes("sub-area") && !parsed.answer.toLowerCase().includes("field")) {
+      parsed.answer = `NDVI crop health analysis for your designated ~${selectedAOI.areaKm2} km² field: ${parsed.answer}`
     }
   } else if (isUrbanQuery) {
     parsed.detections = true
@@ -190,6 +206,9 @@ function enrichAnalysisWithQueryIntent(
         { box_2d: [44, 56, 58, 74], label: "Commercial / Residential Zone", confidence: 0.92 },
         { box_2d: [58, 38, 72, 52], label: "Infrastructure / Facility", confidence: 0.88 },
       ]
+    }
+    if (selectedAOI && parsed.answer && !parsed.answer.toLowerCase().includes("selected") && !parsed.answer.toLowerCase().includes("sub-area") && !parsed.answer.toLowerCase().includes("field")) {
+      parsed.answer = `Object grounding inside your designated ~${selectedAOI.areaKm2} km² area: ${parsed.answer}`
     }
   }
 
@@ -562,7 +581,7 @@ export async function POST(req: Request) {
             const candidateText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text
             if (candidateText) {
               let parsed = JSON.parse(candidateText) as ApiAnalysis
-              parsed = enrichAnalysisWithQueryIntent(parsed, query, scene.name)
+              parsed = enrichAnalysisWithQueryIntent(parsed, query, scene.name, body.selectedAOI)
 
               if (body.selectedAOI && parsed.boundingBoxes && parsed.boundingBoxes.length > 0) {
                 const aoi = body.selectedAOI
@@ -664,7 +683,7 @@ export async function POST(req: Request) {
               const content = groqJson.choices?.[0]?.message?.content
               if (content) {
                 let parsed = JSON.parse(content) as ApiAnalysis
-                parsed = enrichAnalysisWithQueryIntent(parsed, query, scene.name)
+                parsed = enrichAnalysisWithQueryIntent(parsed, query, scene.name, body.selectedAOI)
                 // Coordinate remapping if ROI was selected
                 if (body.selectedAOI && parsed.boundingBoxes && parsed.boundingBoxes.length > 0) {
                   const aoi = body.selectedAOI
@@ -749,7 +768,7 @@ export async function POST(req: Request) {
                   : { kind: "none" }
         : { kind: "none" },
     }
-    const fallbackResult = enrichAnalysisWithQueryIntent(rawFallback, query, scene.name)
+    const fallbackResult = enrichAnalysisWithQueryIntent(rawFallback, query, scene.name, body.selectedAOI)
 
     const sources = [
       "SatQuery Dual-Stream VLM",

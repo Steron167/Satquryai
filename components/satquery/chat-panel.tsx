@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { ArrowUp, Sparkles, User, Target, Layers, X, Maximize2, Minimize2 } from "lucide-react"
+import { ArrowUp, Sparkles, User, Target, Layers, X, Maximize2, Minimize2, ChevronDown } from "lucide-react"
 import { SAMPLE_QUERIES, SCENES } from "@/lib/satquery-data"
 import { ResponseCard } from "./response-card"
 import type { ChatMessage, SelectedArea } from "./types"
@@ -15,6 +15,7 @@ interface ChatPanelProps {
   onClearAOI?: () => void
   isExpanded?: boolean
   onToggleExpand?: () => void
+  onCloseMobileDrawer?: () => void
 }
 
 export function ChatPanel({
@@ -26,6 +27,7 @@ export function ChatPanel({
   onClearAOI,
   isExpanded,
   onToggleExpand,
+  onCloseMobileDrawer,
 }: ChatPanelProps) {
   const [value, setValue] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -41,21 +43,22 @@ export function ChatPanel({
     setValue("")
   }
 
-  // Scene or Sub-area tailored suggestion prompts
+  // Scene or Sub-area tailored suggestion prompts (Bilingual Indian Farmer Friendly)
   const getSuggestions = () => {
     if (activeAOI) {
       return [
+        `🌾 Khet me paani kitna hai? (SAR flood inundation in ~${activeAOI.areaKm2} km² parcel)`,
+        `🌱 Fasal ki tabiyat (NDVI crop vigor inside this farm parcel)`,
         `What is the dominant land cover inside this selected area (~${activeAOI.areaKm2} km²)?`,
-        `Detect water bodies, ponds, and channels in this sub-region`,
-        `Evaluate vegetation vigor & crop canopy health (NDVI) here`,
-        `Identify and count any built structures or settlements in this box`,
+        `Detect water bodies, ponds, and drainage channels in this sub-region`,
+        `Identify and count any built structures or solar panels in this box`,
       ]
     }
 
     switch (activeSceneId) {
       case "brahmaputra":
         return [
-          "Use SAR radar to delineate flood extent through monsoon clouds",
+          "🌾 Khet me baadh ka paani (SAR radar cloud-penetrating flood mapping)",
           "Identify submerged grassland corridors and erosion",
           "Compare optical vs SAR operational advantages here",
         ]
@@ -67,12 +70,18 @@ export function ChatPanel({
         ]
       case "sundarbans":
         return [
-          "Analyze mangrove canopy health and vigor using NDVI",
+          "🌱 Mangrove canopy health and vigor using NDVI",
           "Delineate tidal creek water channels and mudflats",
           "Assess storm surge buffer vulnerability",
         ]
       default:
-        return SAMPLE_QUERIES.map((q) => q.label)
+        return [
+          "🌾 Khet me paani kitna hai? (SAR Radar Flood Inundation)",
+          "🌱 Fasal ki sehat aur upaj (NDVI Crop Health Vigor)",
+          "🇮🇳 ISRO Bhuvan satellite land cover classification",
+          "🌊 PM Fasal Bima flood damage assessment",
+          ...SAMPLE_QUERIES.map((q) => q.label),
+        ]
     }
   }
 
@@ -101,10 +110,20 @@ export function ChatPanel({
                 {isExpanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
               </button>
             )}
+            {onCloseMobileDrawer && (
+              <button
+                type="button"
+                onClick={onCloseMobileDrawer}
+                className="flex lg:hidden items-center justify-center size-7 rounded-full bg-secondary text-foreground hover:bg-muted transition-colors cursor-pointer"
+                title="Minimize chat drawer"
+              >
+                <ChevronDown className="size-4" />
+              </button>
+            )}
           </div>
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Ask natural-language queries across Optical & SAR observations.
+          Ask natural-language queries across Optical, SAR & ISRO observations.
         </p>
       </div>
 
