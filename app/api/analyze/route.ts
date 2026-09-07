@@ -90,6 +90,101 @@ async function fetchTavilySearch(
   }
 }
 
+function latLonToTile(lat: number, lon: number, zoom: number) {
+  const latRad = (lat * Math.PI) / 180
+  const n = 2 ** zoom
+  const x = Math.floor(((lon + 180) / 360) * n)
+  const y = Math.floor(((1 - Math.asinh(Math.tan(latRad)) / Math.PI) / 2) * n)
+  return { x, y, z: zoom }
+}
+
+function tileToLatLon(x: number, y: number, zoom: number) {
+  const n = 2 ** zoom
+  const lon = (x / n) * 360 - 180
+  const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n)))
+  const lat = (latRad * 180) / Math.PI
+  return { lat, lon }
+}
+
+async function fetchRealAOIImage(
+  bounds: { north: number; south: number; east: number; west: number },
+  zoom = 17
+): Promise<Buffer | null> {
+  try {
+    const minTile = latLonToTile(bounds.north, bounds.west, zoom)
+    const maxTile = latLonToTile(bounds.south, bounds.east, zoom)
+
+    const tileMinX = Math.min(minTile.x, maxTile.x)
+    const tileMaxX = Math.max(minTile.x, maxTile.x)
+    const tileMinY = Math.min(minTile.y, maxTile.y)
+    const tileMaxY = Math.max(minTile.y, maxTile.y)
+
+    const tilesAcross = Math.min(4, tileMaxX - tileMinX + 1)
+    const tilesDown = Math.min(4, tileMaxY - tileMinY + 1)
+
+    const tilePromises: Promise<{ dx: number; dy: number; buf: Buffer | null }>[] = []
+    for (let dy = 0; dy < tilesDown; dy++) {
+      for (let dx = 0; dx < tilesAcross; dx++) {
+        const tx = tileMinX + dx
+        const ty = tileMinY + dy
+        const url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${ty}/${tx}`
+        tilePromises.push(
+          fetch(url, { signal: AbortSignal.timeout(5000) })
+            .then(async (r) => (r.ok ? Buffer.from(await r.arrayBuffer()) : null))
+            .catch(() => null)
+            .then((buf) => ({ dx, dy, buf }))
+        )
+      }
+    }
+
+    const results = await Promise.all(tilePromises)
+    const composites: { input: Buffer; left: number; top: number }[] = []
+    for (const item of results) {
+      if (item.buf) {
+        composites.push({
+          input: item.buf,
+          left: item.dx * 256,
+          top: item.dy * 256,
+        })
+      }
+    }
+
+    if (composites.length === 0) return null
+
+    const baseWidth = tilesAcross * 256
+    const baseHeight = tilesDown * 256
+
+    const fullStitched = await sharp({
+      create: {
+        width: baseWidth,
+        height: baseHeight,
+        channels: 3,
+        background: { r: 120, g: 120, b: 120 },
+      },
+    })
+      .composite(composites)
+      .png()
+      .toBuffer()
+
+    const nw = tileToLatLon(tileMinX, tileMinY, zoom)
+    const se = tileToLatLon(tileMinX + tilesAcross, tileMinY + tilesDown, zoom)
+
+    const pixelX = Math.max(0, Math.floor(((bounds.west - nw.lon) / (se.lon - nw.lon)) * baseWidth))
+    const pixelY = Math.max(0, Math.floor(((nw.lat - bounds.north) / (nw.lat - se.lat)) * baseHeight))
+    const cropW = Math.max(16, Math.min(baseWidth - pixelX, Math.ceil(((bounds.east - bounds.west) / (se.lon - nw.lon)) * baseWidth)))
+    const cropH = Math.max(16, Math.min(baseHeight - pixelY, Math.ceil(((bounds.north - bounds.south) / (nw.lat - se.lat)) * baseHeight)))
+
+    return await sharp(fullStitched)
+      .extract({ left: pixelX, top: pixelY, width: cropW, height: cropH })
+      .resize(512, 512, { fit: "fill" })
+      .png()
+      .toBuffer()
+  } catch (err) {
+    console.warn("fetchRealAOIImage error:", err)
+    return null
+  }
+}
+
 interface PixelMetrics {
   stdev: number
   isCropVegetation: boolean
@@ -150,16 +245,16 @@ function enrichAnalysisWithQueryIntent(
       ]
     }
     if (!parsed.card || parsed.card.kind !== "landcover") {
-      const built = pixelMetrics ? Math.max(pixelMetrics.builtPct, 64) : 74
-      const paved = pixelMetrics ? Math.min(Math.max(pixelMetrics.soilPct, 12), 24) : 18
-      const greenery = Math.max(4, 100 - built - paved)
+      const built = pixelMetrics?.builtPct ?? 60
+      const soil = pixelMetrics?.soilPct ?? 25
+      const crop = pixelMetrics?.cropPct ?? 15
       parsed.card = {
         kind: "landcover",
         title: `Land-Cover Composition · Built-up Settlement (${locName})`,
         landcover: [
           { label: "Built-up Roofs & Structures", pct: built },
-          { label: "Paved Streets & Concrete", pct: paved },
-          { label: "Open Ground / Urban Trees", pct: greenery },
+          { label: "Paved Streets & Open Soil", pct: soil },
+          { label: "Vegetation & Urban Trees", pct: crop },
         ],
       }
     }
@@ -178,16 +273,16 @@ function enrichAnalysisWithQueryIntent(
       ]
     }
     if (!parsed.card || parsed.card.kind !== "landcover") {
-      const crop = pixelMetrics ? Math.max(pixelMetrics.cropPct, 68) : 84
-      const soil = pixelMetrics ? Math.min(Math.max(pixelMetrics.soilPct, 8), 24) : 12
-      const trees = Math.max(2, 100 - crop - soil)
+      const crop = pixelMetrics?.cropPct ?? 70
+      const soil = pixelMetrics?.soilPct ?? 25
+      const built = pixelMetrics?.builtPct ?? 5
       parsed.card = {
         kind: "landcover",
         title: `Land-Cover Composition · Agricultural Cropland (${locName})`,
         landcover: [
           { label: "Active Cropland / Green Canopy", pct: crop },
           { label: "Cultivated Soil / Field Margins", pct: soil },
-          { label: "Farmsteads / Trees", pct: trees },
+          { label: "Built / Farmsteads", pct: built },
         ],
       }
     }
@@ -326,9 +421,9 @@ function enrichAnalysisWithQueryIntent(
           kind: "landcover",
           title: `Land-Cover Composition · Built-up Settlement (~${selectedAOI.areaKm2} km²)`,
           landcover: [
-            { label: "Built-up Roofs & Structures", pct: 76 },
-            { label: "Paved Streets & Concrete", pct: 18 },
-            { label: "Open Ground / Urban Trees", pct: 6 },
+            { label: "Built-up Roofs & Structures", pct: pixelMetrics?.builtPct ?? 65 },
+            { label: "Paved Streets & Open Soil", pct: pixelMetrics?.soilPct ?? 22 },
+            { label: "Open Ground / Urban Trees", pct: pixelMetrics?.cropPct ?? 13 },
           ],
         }
       } else if (pixelMetrics?.isCropVegetation || groundTruth?.isAgricultural) {
@@ -336,9 +431,9 @@ function enrichAnalysisWithQueryIntent(
           kind: "landcover",
           title: `Land-Cover Composition · Field Parcel (~${selectedAOI.areaKm2} km²)`,
           landcover: [
-            { label: "Cropland / Vegetation", pct: 82 },
-            { label: "Cultivated Soil / Fallow", pct: 14 },
-            { label: "Built / Farmsteads", pct: 4 },
+            { label: "Cropland / Vegetation", pct: pixelMetrics?.cropPct ?? 72 },
+            { label: "Cultivated Soil / Fallow", pct: pixelMetrics?.soilPct ?? 23 },
+            { label: "Built / Farmsteads", pct: pixelMetrics?.builtPct ?? 5 },
           ],
         }
       } else {
@@ -346,9 +441,9 @@ function enrichAnalysisWithQueryIntent(
           kind: "landcover",
           title: `Land-Cover Composition · Selected Area (~${selectedAOI.areaKm2} km²)`,
           landcover: [
-            { label: "Open Ground / Soil", pct: 52 },
-            { label: "Vegetative Cover", pct: 32 },
-            { label: "Structures / Infrastructure", pct: 16 },
+            { label: "Open Ground / Soil", pct: pixelMetrics?.soilPct ?? 50 },
+            { label: "Vegetative Cover", pct: pixelMetrics?.cropPct ?? 35 },
+            { label: "Structures / Infrastructure", pct: pixelMetrics?.builtPct ?? 15 },
           ],
         }
       }
@@ -468,21 +563,15 @@ export async function POST(req: Request) {
 
     if (body.selectedAOI?.bounds) {
       const b = body.selectedAOI.bounds
-      const esriTileUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${b.west},${b.south},${b.east},${b.north}&bboxSR=4326&imageSR=4326&size=1024,1024&f=image`
 
-      const [esriRes, gtResult] = await Promise.allSettled([
-        fetch(esriTileUrl, { signal: AbortSignal.timeout(6000) }),
+      const [tileBufResult, gtResult] = await Promise.allSettled([
+        fetchRealAOIImage(b, 17),
         fetchGroundTruth(b),
       ])
 
-      if (esriRes.status === "fulfilled" && esriRes.value.ok) {
-        try {
-          const buf = Buffer.from(await esriRes.value.arrayBuffer())
-          opticalBase64 = buf.toString("base64")
-          aoiOpticalFetched = true
-        } catch (bufErr) {
-          console.warn("Could not parse ESRI tile buffer:", bufErr)
-        }
+      if (tileBufResult.status === "fulfilled" && tileBufResult.value) {
+        opticalBase64 = tileBufResult.value.toString("base64")
+        aoiOpticalFetched = true
       }
 
       if (gtResult.status === "fulfilled") {
@@ -505,10 +594,7 @@ export async function POST(req: Request) {
           const optBuf = Buffer.from(opticalBase64, "base64")
           let croppedOpt: Buffer
           if (aoiOpticalFetched) {
-            croppedOpt = await sharp(optBuf)
-              .resize(1024, 1024, { fit: "inside" })
-              .png()
-              .toBuffer()
+            croppedOpt = optBuf
           } else {
             const meta = await sharp(optBuf).metadata()
             if (meta.width && meta.height) {
@@ -564,12 +650,13 @@ export async function POST(req: Request) {
 
               if (b > r * 1.20 && b > g * 1.05 && b > 55) {
                 rawWater++
-              } else if (!groundTruth?.isUrbanSettlement && g > r * 1.05 && pixelExG > 5) {
+              } else if (!groundTruth?.isUrbanSettlement && g > r * 1.14 && g > b * 1.12 && pixelExG > 8) {
                 rawCrop++
               } else if (
                 Boolean(groundTruth?.isUrbanSettlement) ||
-                (brightness > 118 && Math.abs(r - g) < 24 && Math.abs(g - b) < 24) ||
-                (brightness > 105 && pixelExG < -8)
+                brightness > 160 ||
+                (brightness > 120 && g <= r * 1.10 && pixelExG < 20) ||
+                (brightness > 100 && Math.abs(r - g) < 18 && Math.abs(g - b) < 26)
               ) {
                 rawBuilt++
               } else {
@@ -593,28 +680,24 @@ export async function POST(req: Request) {
             // 1. Active green crop canopy (photosynthetic chlorophyll dominance)
             const isGreenCrop =
               !groundTruth?.isUrbanSettlement &&
-              ((gMean > rMean * 1.06 && exG > 4) ||
-                (greenDiff > 0.04 && exG > 2) ||
-                (gMean > bMean * 1.15 && exG > 2) ||
-                cropPct > 45)
+              (cropPct > 25 || (gMean > rMean * 1.10 && exG > 5))
 
-            // 2. Cultivated soil / plowed field / fallow agricultural parcel (low blue, smooth field texture)
+            // 2. Cultivated soil / plowed field / fallow agricultural parcel
             const isSoilFarmland =
               !groundTruth?.isUrbanSettlement &&
               !isGreenCrop &&
-              blueRatio < 0.38 &&
-              bMean < 112 &&
-              avgStdev < 24
+              soilPct > 50
 
             const isCropVegetation = isGreenCrop || isSoilFarmland
 
             // 3. Water body (high blue dominance, low red, smooth specular surface)
-            const isWater = (!isCropVegetation && bMean > rMean * 1.15 && gMean > rMean && avgStdev < 18) || waterPct > 50
+            const isWater = waterPct > 35 || (!isCropVegetation && bMean > rMean * 1.15 && gMean > rMean)
 
             // 4. Dense built-up settlement (concrete roofs, tin sheets, high edge contrast stdev, residential/urban ground truth)
             const isBuiltUp =
               Boolean(groundTruth?.isUrbanSettlement) ||
-              (!isCropVegetation && !isWater && (avgStdev > 25 || (bMean > 105 && exG < -2) || builtPct > 55))
+              builtPct > 20 ||
+              (!isCropVegetation && !isWater && avgStdev > 30)
 
             pixelMetrics = {
               stdev: avgStdev,

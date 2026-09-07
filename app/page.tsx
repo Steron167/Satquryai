@@ -57,8 +57,7 @@ const DEFAULT_INITIAL_SCENE: SceneMeta = {
   layers: { optical: "", sar: "", ndvi: "", ndwi: "" },
 }
 
-const DEFAULT_INITIAL_TILE =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=74.4439,19.8474,74.5139,19.9174&bboxSR=4326&imageSR=4326&size=1024,1024&f=image"
+const DEFAULT_INITIAL_TILE = null
 
 const getInitialMessage = (sceneName: string): ChatMessage => ({
   id: "welcome",
@@ -69,7 +68,7 @@ const getInitialMessage = (sceneName: string): ChatMessage => ({
 export default function Page() {
   const [selectedSceneId, setSelectedSceneId] = useState<string>("geo-kopargaon")
   const [customScene, setCustomScene] = useState<SceneMeta | null>(DEFAULT_INITIAL_SCENE)
-  const [customOptical, setCustomOptical] = useState<string | null>(DEFAULT_INITIAL_TILE)
+  const [customOptical, setCustomOptical] = useState<string | null>(null)
   const [customSar, setCustomSar] = useState<string | null>(null)
   const [isLocating, setIsLocating] = useState(false)
 

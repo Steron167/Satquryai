@@ -87,12 +87,14 @@ export async function fetchGroundTruth(
       (osmClass === "natural" && (osmType === "water" || osmType === "wetland")) ||
       ["river", "canal", "stream", "pond", "reservoir", "lake", "drain"].includes(osmType)
 
-    // Check for explicit physical building structures (never administrative suburb boundaries)
+    // Check for explicit physical building structures or public amenities
     const isBuilding =
       osmClass === "building" ||
       osmClass === "office" ||
       osmClass === "shop" ||
       osmClass === "amenity" ||
+      osmClass === "healthcare" ||
+      osmClass === "craft" ||
       [
         "building",
         "house",
@@ -103,6 +105,9 @@ export async function fetchGroundTruth(
         "school",
         "hospital",
         "hotel",
+        "centre",
+        "clinic",
+        "subcentre",
       ].includes(osmType) ||
       addressType === "building"
 
@@ -112,30 +117,32 @@ export async function fetchGroundTruth(
 
     // Kopargaon town center dense core bounds (including Annapurna Nagar, Main Market, Station Road)
     const isKopargaonUrbanCore =
-      centerLat >= 19.878 && centerLat <= 19.898 && centerLon >= 74.468 && centerLon <= 74.488
+      centerLat >= 19.865 && centerLat <= 19.915 && centerLon >= 74.440 && centerLon <= 74.510
 
-    // Recognizes named residential colonies / nagars inside town core
+    // Recognizes named residential colonies, nagars, or village clusters inside region
     const isNamedUrbanColony = Boolean(
-      isKopargaonUrbanCore &&
+      (isKopargaonUrbanCore || isLanduseUrban) &&
         (placeName.toLowerCase().includes("nagar") ||
           suburb.toLowerCase().includes("nagar") ||
           displayName.toLowerCase().includes("annapurna") ||
           addressType === "neighbourhood" ||
           addressType === "residential" ||
           osmType === "residential" ||
-          osmType === "neighbourhood")
+          osmType === "neighbourhood" ||
+          osmType === "village" ||
+          osmType === "hamlet")
     )
 
     // An area is classified as urban settlement if it has explicit buildings, urban landuse, or is a named urban residential colony in town
     const isUrbanSettlement =
       !isOsmAgriculture &&
       !isWaterBody &&
-      (isBuilding || (isLanduseUrban && isKopargaonUrbanCore) || isNamedUrbanColony)
+      (isBuilding || isLanduseUrban || isNamedUrbanColony)
 
     const isAgricultural = !isUrbanSettlement && !isWaterBody
 
     const summary = isUrbanSettlement
-      ? `Dense Built-up Urban Settlement (${placeName || town || "Town Core"}) with residential buildings and street infrastructure`
+      ? `Built-up Settlement (${placeName || town || "Settlement"}) with structures and local infrastructure`
       : isWaterBody
       ? `Water channel / drainage corridor (${displayName.split(",")[0] || "Waterway"})`
       : `Active agricultural cropland and cultivated rural parcel in ${placeName}`
