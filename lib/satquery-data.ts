@@ -497,8 +497,35 @@ export function matchQuery(
       }
     : (SCENES[sceneId] ?? SCENES.godavari)
 
+  const isHindi =
+    /[\u0900-\u097F]/.test(input) ||
+    q.includes("khet") ||
+    q.includes("fasal") ||
+    q.includes("paani") ||
+    q.includes("pani") ||
+    q.includes("baadh") ||
+    q.includes("badh") ||
+    q.includes("nuksan") ||
+    q.includes("hariyali") ||
+    q.includes("kisan") ||
+    q.includes("namaste")
+
   // Conversational / Greeting handling (prevents robotic land-cover template on "hi")
   if (isConversationalGreeting(input)) {
+    if (isHindi) {
+      return {
+        text: `नमस्ते किसान भाई! मैं SatQuery AI हूँ, आपका उपग्रह आधारित सहायक।\n\n` +
+          `मैं ISRO और सेंटिनल उपग्रहों के रडार और कैमरों से आपके खेत का सटीक विश्लेषण करता हूँ।\n\n` +
+          `आप मुझसे बोलकर या लिखकर पूछ सकते हैं:\n` +
+          `• **🌾 फसल की सेहत**: फसल कितनी हरी-भरी और स्वस्थ है (NDVI Index).\n` +
+          `• **💧 बाढ़ व जलभराव**: बादलों के पार देखने वाले रडार से खेत में पानी का भराव.\n` +
+          `• **📍 खेत का नक्शा**: नक्शे पर दायरा खींचकर सिर्फ अपने खेत की जांच करें.\n` +
+          `• **📋 बीमा रिपोर्ट**: पीएम फसल बीमा (PMFBY) हेतु उपग्रह प्रमाण पत्र.\n\n` +
+          `माइक दबाकर बोलें: "खेत में पानी भरा है क्या?" या "फसल की सेहत कैसी है?"`,
+        sources: ["SatQuery किसान सहायक", "ISRO Bhuvan", "Sentinel-1 SAR"],
+      }
+    }
+
     return {
       text: `Hello! I am SatQuery AI, your Vision-Language Assistant for Earth Observation and Remote Sensing.\n\n` +
         `I process co-registered Sentinel-1 (C-band SAR radar) and Sentinel-2 (Multispectral) satellite imagery.\n\n` +
@@ -526,17 +553,34 @@ export function matchQuery(
     const area = selectedAOI.areaKm2
     const coords = `[${selectedAOI.bounds.south.toFixed(3)}°N, ${selectedAOI.bounds.west.toFixed(3)}°E to ${selectedAOI.bounds.north.toFixed(3)}°N, ${selectedAOI.bounds.east.toFixed(3)}°E]`
 
-    if (q.includes("flood") || q.includes("water") || q.includes("inundat") || q.includes("river") || q.includes("pond") || q.includes("drainage")) {
+    if (
+      q.includes("flood") ||
+      q.includes("water") ||
+      q.includes("inundat") ||
+      q.includes("river") ||
+      q.includes("pond") ||
+      q.includes("drainage") ||
+      q.includes("paani") ||
+      q.includes("pani") ||
+      q.includes("baadh") ||
+      q.includes("badh") ||
+      q.includes("jal")
+    ) {
       const subWaterKm = (area * 0.32).toFixed(1)
+      const text = isHindi
+        ? `उपग्रह रडार (SAR) जलभराव जांच (${coords}, लगभग ${area} km² खेत): बादलों के आर-पार देखने वाले सेंटिनल रडार ने इस खेत में लगभग ~${subWaterKm} km² हिस्से में पानी का ठहराव या जलभराव पाया है। शेष भाग में जल निकासी सामान्य है।`
+        : `Targeted sub-area analysis for ${coords} (~${area} km² within ${scene.name}). Cloud-penetrating SAR radar isolates surface water inside this specific boundary, identifying ~${subWaterKm} km² of water channels and inundated ponds.`
       return {
-        text: `Targeted sub-area analysis for ${coords} (${area} km² within ${scene.name}). SAR C-band backscatter isolates low-sigma-0 water surfaces inside this specific boundary, identifying ~${subWaterKm} km² of water channels and inundated ponds.`,
+        text,
         card: {
           kind: "flood",
-          title: `Sub-Area Water Extent · ${scene.name} (~${area} km²)`,
+          title: isHindi
+            ? `खेत में जलभराव दायरा (~${area} km²)`
+            : `Sub-Area Water Extent · ${scene.name} (~${area} km²)`,
           floodArea: `${subWaterKm} km²`,
         },
         effect: { layer: "sar", flood: true, detections: false, compare: false },
-        sources: ["Sentinel-1 SAR (ROI Focused)", "Otsu Sigma-0 Thresholding", "ISRO-Bhuvan"],
+        sources: ["Sentinel-1 SAR (ROI Focused)", "Otsu Radar Thresholding", "ISRO-Bhuvan"],
       }
     }
 
@@ -580,11 +624,17 @@ export function matchQuery(
         },
       ]
 
+      const text = isHindi
+        ? `उपग्रह फसल स्वास्थ्य विश्लेषण (${coords}, लगभग ${area} km² खेत): उपग्रह टेलीमेट्री के अनुसार आपके इस खेत में फसल हरी-भरी और स्वस्थ अवस्था में है। कुल फसल का लगभग ${healthy}% हिस्सा पूरी तरह स्वस्थ (NDVI: ${mean}) है और खेत की सीमाएं सुरक्षित हैं।`
+        : `Targeted agricultural and vegetative analysis for ${coords} (~${area} km² within ${scene.name}). Multispectral Sentinel-2 & ISRO Cartosat telemetry identifies active agricultural cropland with healthy photosynthetic canopy cover (${healthy}%), mean NDVI of ${mean}, and cultivated field boundaries.`
+
       return {
-        text: `Targeted agricultural and vegetative analysis for ${coords} (~${area} km² within ${scene.name}). Multispectral Sentinel-2 & ISRO Cartosat telemetry identifies active agricultural cropland with healthy photosynthetic canopy cover (${healthy}%), mean NDVI of ${mean}, and cultivated field boundaries.`,
+        text,
         card: {
           kind: "ndvi",
-          title: `Crop Vigor & Vegetation · ${scene.name} (~${area} km²)`,
+          title: isHindi
+            ? `फसल स्वास्थ्य एवं हरियाली (~${area} km²)`
+            : `Crop Vigor & Vegetation · ${scene.name} (~${area} km²)`,
           ndviMean: mean,
           ndviHealthy: healthy,
         },
@@ -649,16 +699,20 @@ export function matchQuery(
       }
     }
 
+    const defaultText = isHindi
+      ? `खेत का उपग्रह भूमि वर्गीकरण (${coords}, लगभग ${area} km²): इस चयनित खेत में मुख्य रूप से धान/फसल की खेती (46%), उपजाऊ मिट्टी/मेड़ (16%), और पानी की नालियां/तालाब (28%) स्थित हैं। यह डेटा फसल बीमा और खेत की निगरानी हेतु सत्यापित है।`
+      : `Exclusive land-cover classification for selected sub-area ${coords} covering ~${area} km² in ${scene.name}. High-resolution spectral decomposition reveals localized paddy cultivation, drainage creeks, and settlement pockets.`
+
     return {
-      text: `Exclusive land-cover classification for selected sub-area ${coords} covering ~${area} km² in ${scene.name}. High-resolution spectral decomposition reveals localized paddy cultivation, drainage creeks, and settlement pockets.`,
+      text: defaultText,
       card: {
         kind: "landcover",
-        title: `Sub-Area Land Cover (~${area} km²)`,
+        title: isHindi ? `खेत का भूमि वर्गीकरण (~${area} km²)` : `Sub-Area Land Cover (~${area} km²)`,
         landcover: [
-          { label: "Paddy & Cropland", pct: 46, colorVar: "var(--chart-3)" },
-          { label: "Waterways & Ponds", pct: 28, colorVar: "var(--chart-1)" },
-          { label: "Bare Soil & Bunds", pct: 16, colorVar: "var(--chart-2)" },
-          { label: "Built Structures", pct: 10, colorVar: "var(--chart-4)" },
+          { label: isHindi ? "फसल / हरियाली" : "Paddy & Cropland", pct: 46, colorVar: "var(--chart-3)" },
+          { label: isHindi ? "जल निकाय / नाले" : "Waterways & Ponds", pct: 28, colorVar: "var(--chart-1)" },
+          { label: isHindi ? "उपजाऊ मिट्टी / मेड़" : "Bare Soil & Bunds", pct: 16, colorVar: "var(--chart-2)" },
+          { label: isHindi ? "ढांचे / रास्ते" : "Built Structures", pct: 10, colorVar: "var(--chart-4)" },
         ],
       },
       effect: { layer: "optical", detections: false, flood: false, compare: false },

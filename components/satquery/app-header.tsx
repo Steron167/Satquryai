@@ -1,6 +1,6 @@
 "use client"
 
-import { Satellite, Circle, FileText, Cpu, PanelLeftOpen, PanelLeftClose, Play, Square } from "lucide-react"
+import { Satellite, Circle, FileText, Cpu, PanelLeftOpen, PanelLeftClose, Play, Square, MessageSquare } from "lucide-react"
 
 interface AppHeaderProps {
   onOpenBenchmark?: () => void
@@ -9,6 +9,7 @@ interface AppHeaderProps {
   onToggleLeftPanel?: () => void
   onStartDemo?: () => void
   isDemoRunning?: boolean
+  onOpenChat?: () => void
 }
 
 export function AppHeader({
@@ -18,28 +19,29 @@ export function AppHeader({
   onToggleLeftPanel,
   onStartDemo,
   isDemoRunning,
+  onOpenChat,
 }: AppHeaderProps) {
   return (
-    <header className="relative z-40 flex items-center justify-between gap-4 border-b border-border bg-sidebar px-4 py-2.5 select-none shadow-sm">
-      <div className="flex items-center gap-2.5 sm:gap-3">
+    <header className="relative z-40 flex items-center justify-between gap-2 sm:gap-4 border-b border-border bg-sidebar px-2.5 sm:px-4 py-2 select-none shadow-sm">
+      <div className="flex items-center gap-2 sm:gap-3">
         {onToggleLeftPanel && (
           <button
             type="button"
             onClick={onToggleLeftPanel}
-            className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition-all cursor-pointer ${
               isLeftPanelOpen
-                ? "border-border bg-card text-muted-foreground hover:text-foreground hover:bg-secondary"
-                : "border-primary/50 bg-primary/15 text-primary shadow-sm ring-1 ring-primary/30 animate-pulse"
+                ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                : "border-primary/60 bg-primary/15 text-primary shadow-sm ring-1 ring-primary/40 animate-pulse"
             }`}
-            title={isLeftPanelOpen ? "Collapse Scene Sidebar" : "Expand Scene Sidebar"}
+            title={isLeftPanelOpen ? "Close Scenes" : "Search locations, GPS, and satellite scenes"}
           >
             {isLeftPanelOpen ? (
               <PanelLeftClose className="size-4" />
             ) : (
-              <PanelLeftOpen className="size-4 text-primary" />
+              <PanelLeftOpen className="size-4" />
             )}
-            <span className="hidden sm:inline">
-              {isLeftPanelOpen ? "Hide Scenes" : "Show Scenes"}
+            <span className="text-xs">
+              {isLeftPanelOpen ? "Close" : "📍 जगह (Locations)"}
             </span>
           </button>
         )}
@@ -95,14 +97,27 @@ export function AppHeader({
           </button>
         )}
 
+        {onOpenChat && (
+          <button
+            type="button"
+            onClick={onOpenChat}
+            className="flex lg:hidden items-center gap-1 rounded-lg border border-primary/50 bg-primary/15 px-2 py-1.5 text-xs font-bold text-primary shadow-sm hover:bg-primary/25 transition-all cursor-pointer"
+            title="Open Kisan AI Chatbot"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>चैट</span>
+          </button>
+        )}
+
         {onOpenReport && (
           <button
             type="button"
             onClick={onOpenReport}
-            className="flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors shadow-sm"
+            className="flex items-center gap-1 rounded-lg border border-emerald-500/50 bg-emerald-500/15 px-2 sm:px-2.5 py-1.5 text-xs font-bold text-emerald-400 hover:bg-emerald-500/25 transition-colors shadow-sm cursor-pointer"
           >
             <FileText className="size-3.5" />
             <span className="hidden sm:inline">Export Report</span>
+            <span className="sm:hidden">रिपोर्ट</span>
           </button>
         )}
 

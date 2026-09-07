@@ -13,6 +13,8 @@ import {
   Square,
   Sun,
   MessageSquare,
+  MapPin,
+  Mic,
 } from "lucide-react"
 import { AppHeader } from "@/components/satquery/app-header"
 import { ScenePanel } from "@/components/satquery/scene-panel"
@@ -519,6 +521,7 @@ export default function Page() {
         onToggleLeftPanel={() => setIsLeftPanelOpen((prev) => !prev)}
         onStartDemo={isDemoRunning ? stopJudgesDemo : startJudgesDemo}
         isDemoRunning={isDemoRunning}
+        onOpenChat={() => setIsMobileChatOpen(true)}
       />
 
       {/* Main Workspace */}
@@ -545,6 +548,49 @@ export default function Page() {
             onLocationSelect={handleLocationSelect}
           />
         </div>
+
+        {/* Mobile Slide-Over Drawer for ScenePanel (Location Search, GPS, Scenes, Upload) */}
+        {isLeftPanelOpen && (
+          <div className="lg:hidden fixed inset-0 z-50 flex animate-in fade-in duration-200">
+            <div
+              onClick={() => setIsLeftPanelOpen(false)}
+              className="fixed inset-0 bg-black/75 backdrop-blur-sm transition-opacity"
+            />
+            <div className="relative z-10 w-[86vw] max-w-sm h-full bg-sidebar shadow-2xl border-r border-border flex flex-col animate-in slide-in-from-left duration-250">
+              <ScenePanel
+                activeLayer={viewer.layer}
+                onLayerChange={(layer) => {
+                  handleLayerChange(layer)
+                  setIsLeftPanelOpen(false)
+                }}
+                selectedSceneId={selectedSceneId}
+                onSceneChange={(id) => {
+                  handleSceneChange(id)
+                  setIsLeftPanelOpen(false)
+                }}
+                onOpenUpload={() => {
+                  setIsUploadOpen(true)
+                  setIsLeftPanelOpen(false)
+                }}
+                onOpenBenchmark={() => {
+                  setIsBenchmarkOpen(true)
+                  setIsLeftPanelOpen(false)
+                }}
+                onLocateMe={() => {
+                  handleLocateMe()
+                  setIsLeftPanelOpen(false)
+                }}
+                isLocating={isLocating}
+                customSceneMeta={customScene}
+                onCollapse={() => setIsLeftPanelOpen(false)}
+                onLocationSelect={(scene, url) => {
+                  handleLocationSelect(scene, url)
+                  setIsLeftPanelOpen(false)
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Center: Image Viewer (Full-Screen on Mobile, Flexible on Desktop) */}
         <div className="relative flex-1 min-h-0 min-w-0 h-full w-full overflow-hidden">
@@ -586,8 +632,24 @@ export default function Page() {
             onToggleFlood={() => setViewer((prev) => ({ ...prev, flood: !prev.flood }))}
           />
 
-          {/* Floating Mobile Farmer Quick Action Bar (Mobile Only, above peek bar) */}
-          <div className="lg:hidden pointer-events-auto absolute bottom-14 left-2 right-2 z-20 flex items-center justify-around gap-1 rounded-2xl border border-border/80 bg-background/95 p-1.5 shadow-2xl backdrop-blur-md">
+          {/* Unified Farmer Mobile Bottom Navigation Bar (Mobile Only) */}
+          <div className="lg:hidden pointer-events-auto absolute bottom-2 left-2 right-2 z-30 flex items-center justify-around gap-1 rounded-2xl border border-border/90 bg-sidebar/95 p-1.5 shadow-2xl backdrop-blur-md">
+            {/* 1. Places / Locations Search Drawer */}
+            <button
+              type="button"
+              onClick={() => setIsLeftPanelOpen(true)}
+              className={`flex flex-col items-center gap-0.5 rounded-xl px-2.5 py-1.5 text-[10px] font-bold transition-all cursor-pointer ${
+                isLeftPanelOpen
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+              }`}
+              title="खोजें और जगह चुनें (Search Locations & Scenes)"
+            >
+              <MapPin className="size-4 text-primary" />
+              <span>📍 जगह</span>
+            </button>
+
+            {/* 2. Select Field Parcel (AOI) */}
             <button
               type="button"
               onClick={() => {
@@ -607,14 +669,15 @@ export default function Page() {
               }}
               className={`flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[10px] font-bold transition-all cursor-pointer ${
                 viewer.selectedAOI
-                  ? "bg-cyan-500 text-slate-950 shadow-sm"
+                  ? "bg-cyan-500 text-slate-950 shadow-sm font-bold"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary"
               }`}
             >
               <BoxSelect className="size-4" />
-              <span>{viewer.selectedAOI ? "Field (~0.95km²)" : "Select Field"}</span>
+              <span>{viewer.selectedAOI ? "खेत (~0.95km²)" : "खेत चुनें"}</span>
             </button>
 
+            {/* 3. SAR Flood Radar Toggle */}
             <button
               type="button"
               onClick={() => {
@@ -631,9 +694,10 @@ export default function Page() {
               }`}
             >
               <Radar className="size-4" />
-              <span>{viewer.flood ? "Flood ON" : "Check Flood"}</span>
+              <span>{viewer.flood ? "बाढ़ ON" : "बाढ़ जांच"}</span>
             </button>
 
+            {/* 4. Crop Health (NDVI) Toggle */}
             <button
               type="button"
               onClick={() => {
@@ -649,61 +713,22 @@ export default function Page() {
               }`}
             >
               <Sparkles className="size-4" />
-              <span>Crop Health</span>
+              <span>फसल सेहत</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setViewer((prev) => ({
-                  ...prev,
-                  layer: prev.layer === "isro" ? "optical" : "isro",
-                }))
-              }}
-              className={`flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[10px] font-bold transition-all cursor-pointer ${
-                viewer.layer === "isro"
-                  ? "bg-orange-500 text-slate-950 shadow-sm font-bold"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-              }`}
-            >
-              <span className="text-sm leading-none">🇮🇳</span>
-              <span>ISRO</span>
-            </button>
-
+            {/* 5. Kisan AI Chatbot & Voice Assistant */}
             <button
               type="button"
               onClick={() => setIsMobileChatOpen(true)}
-              className="flex flex-col items-center gap-0.5 rounded-xl bg-primary/15 text-primary hover:bg-primary/25 px-2.5 py-1.5 text-[10px] font-bold transition-all cursor-pointer"
+              className="flex flex-col items-center gap-0.5 rounded-xl bg-primary text-primary-foreground px-3 py-1.5 text-[10px] font-bold transition-all shadow-md cursor-pointer hover:bg-primary/90 ring-2 ring-primary/40 animate-pulse"
             >
-              <MessageSquare className="size-4" />
-              <span>Ask AI</span>
+              <div className="flex items-center gap-1">
+                <Mic className="size-3.5" />
+                <MessageSquare className="size-3.5" />
+              </div>
+              <span>किसान AI</span>
             </button>
           </div>
-
-          {/* Mobile Bottom Sheet Peek Bar (when drawer is closed) */}
-          {!isMobileChatOpen && (
-            <div
-              onClick={() => setIsMobileChatOpen(true)}
-              className="lg:hidden absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between border-t border-border bg-sidebar/95 px-4 py-2.5 shadow-2xl backdrop-blur-md cursor-pointer hover:bg-sidebar transition-all"
-            >
-              <div className="flex items-center gap-2">
-                <div className="flex size-7 items-center justify-center rounded-full bg-primary/20 text-primary">
-                  <Sparkles className="size-3.5" />
-                </div>
-                <div className="text-left">
-                  <div className="text-xs font-semibold flex items-center gap-1.5">
-                    <span>Vision-Language AI Assistant</span>
-                    <span className="text-[9px] bg-primary/20 text-primary px-1.5 py-0.5 rounded font-mono">Bilingual</span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">Khet me paani · Fasal ki tabiyat (Tap to open)</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-foreground">
-                <span>Open</span>
-                <ChevronUp className="size-3.5" />
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Mobile Full-Height Sliding Chat Drawer */}
@@ -713,12 +738,19 @@ export default function Page() {
               onClick={() => setIsMobileChatOpen(false)}
               className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity"
             />
-            <div className="lg:hidden fixed inset-x-0 bottom-0 top-[12vh] z-50 rounded-t-2xl shadow-2xl border-t border-border overflow-hidden bg-sidebar flex flex-col transition-transform duration-300 animate-in slide-in-from-bottom">
+            <div className="lg:hidden fixed inset-x-0 bottom-0 top-[8vh] z-50 rounded-t-2xl shadow-2xl border-t border-border overflow-hidden bg-sidebar flex flex-col transition-transform duration-300 animate-in slide-in-from-bottom">
               <div
-                className="flex justify-center pt-2 pb-1 bg-sidebar cursor-pointer"
+                className="flex items-center justify-between px-4 py-2 bg-sidebar border-b border-border/60 cursor-pointer"
                 onClick={() => setIsMobileChatOpen(false)}
               >
-                <div className="h-1.5 w-12 rounded-full bg-muted-foreground/40" />
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-primary" />
+                  <span className="text-xs font-bold text-foreground">Kisan AI Assistant (बोलकर या लिखकर पूछें)</span>
+                </div>
+                <div className="flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                  <span>बंद करें (Close)</span>
+                  <ChevronDown className="size-3.5" />
+                </div>
               </div>
               <div className="flex-1 min-h-0">
                 <ChatPanel
