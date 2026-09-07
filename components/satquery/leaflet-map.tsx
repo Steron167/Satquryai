@@ -56,15 +56,22 @@ function GlobeIcon({ className }: { className?: string }) {
   )
 }
 
-function parseCenter(scene: SceneMeta): [number, number] {
+function parseCenter(scene?: SceneMeta | null): [number, number] {
+  if (!scene) return [19.8824, 74.4789]
   if (scene.bounds) {
-    const lat = (scene.bounds.north + scene.bounds.south) / 2
-    const lon = (scene.bounds.east + scene.bounds.west) / 2
-    if (!isNaN(lat) && !isNaN(lon)) return [lat, lon]
+    const n = Number(scene.bounds.north)
+    const s = Number(scene.bounds.south)
+    const e = Number(scene.bounds.east)
+    const w = Number(scene.bounds.west)
+    if (Number.isFinite(n) && Number.isFinite(s) && Number.isFinite(e) && Number.isFinite(w)) {
+      return [(n + s) / 2, (e + w) / 2]
+    }
   }
-  const latNum = parseFloat(scene.lat)
-  const lonNum = parseFloat(scene.lon)
-  if (!isNaN(latNum) && !isNaN(lonNum)) return [latNum, lonNum]
+  if (scene.lat && scene.lon) {
+    const latNum = parseFloat(String(scene.lat))
+    const lonNum = parseFloat(String(scene.lon))
+    if (Number.isFinite(latNum) && Number.isFinite(lonNum)) return [latNum, lonNum]
+  }
   return [19.8824, 74.4789] // Default Kopargaon
 }
 
@@ -209,7 +216,13 @@ export function LeafletMap({
       mapRef.current.zoomOut()
     } else if (mapAction.type === "recenter") {
       const [lat, lon] = parseCenter(scene)
-      mapRef.current.flyTo([lat, lon], 13.5, { duration: 1 })
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        try {
+          mapRef.current.flyTo([lat, lon], 13.5, { duration: 1 })
+        } catch (e) {
+          console.warn("flyTo recenter error:", e)
+        }
+      }
     }
   }, [mapAction, scene])
 
@@ -217,10 +230,17 @@ export function LeafletMap({
   useEffect(() => {
     if (!mapRef.current) return
     const [targetLat, targetLon] = parseCenter(scene)
-    const currentCenter = mapRef.current.getCenter()
-    const dist = Math.hypot(currentCenter.lat - targetLat, currentCenter.lng - targetLon)
-    if (dist > 0.005) {
-      mapRef.current.flyTo([targetLat, targetLon], 13.5, { duration: 1.5 })
+    if (!Number.isFinite(targetLat) || !Number.isFinite(targetLon)) return
+    try {
+      const currentCenter = mapRef.current.getCenter()
+      if (currentCenter && Number.isFinite(currentCenter.lat) && Number.isFinite(currentCenter.lng)) {
+        const dist = Math.hypot(currentCenter.lat - targetLat, currentCenter.lng - targetLon)
+        if (dist > 0.005) {
+          mapRef.current.flyTo([targetLat, targetLon], 13.5, { duration: 1.5 })
+        }
+      }
+    } catch (e) {
+      console.warn("flyTo scene change error:", e)
     }
   }, [scene])
 
@@ -581,11 +601,16 @@ export function LeafletMap({
     (e: React.MouseEvent) => {
       if (activeToolMode !== "select" || !mapRef.current) return
       const map = mapRef.current
-      const latlng = map.mouseEventToLatLng(e.nativeEvent)
-      mouseStartPos.current = { x: e.clientX, y: e.clientY }
-      setIsDrawing(true)
-      setDragStart(latlng)
-      map.dragging.disable()
+      try {
+        const latlng = map.mouseEventToLatLng(e.nativeEvent)
+        if (!latlng || !Number.isFinite(latlng.lat) || !Number.isFinite(latlng.lng)) return
+        mouseStartPos.current = { x: e.clientX, y: e.clientY }
+        setIsDrawing(true)
+        setDragStart(latlng)
+        map.dragging.disable()
+      } catch (err) {
+        console.warn("handleMouseDown error:", err)
+      }
     },
     [activeToolMode]
   )
@@ -593,20 +618,27 @@ export function LeafletMap({
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (!isDrawing || !dragStart || !mapRef.current) return
+      if (!Number.isFinite(dragStart.lat) || !Number.isFinite(dragStart.lng)) return
       const map = mapRef.current
-      const currentLatLng = map.mouseEventToLatLng(e.nativeEvent)
-      const bounds = L.latLngBounds(dragStart, currentLatLng)
+      try {
+        const currentLatLng = map.mouseEventToLatLng(e.nativeEvent)
+        if (!currentLatLng || !Number.isFinite(currentLatLng.lat) || !Number.isFinite(currentLatLng.lng)) return
+        const bounds = L.latLngBounds(dragStart, currentLatLng)
+        if (!bounds.isValid()) return
 
-      if (selectionRectRef.current) {
-        selectionRectRef.current.setBounds(bounds)
-      } else {
-        selectionRectRef.current = L.rectangle(bounds, {
-          color: "#06b6d4",
-          weight: 2.5,
-          fillColor: "#22d3ee",
-          fillOpacity: 0.22,
-          dashArray: "6, 6",
-        }).addTo(map)
+        if (selectionRectRef.current) {
+          selectionRectRef.current.setBounds(bounds)
+        } else {
+          selectionRectRef.current = L.rectangle(bounds, {
+            color: "#06b6d4",
+            weight: 2.5,
+            fillColor: "#22d3ee",
+            fillOpacity: 0.22,
+            dashArray: "6, 6",
+          }).addTo(map)
+        }
+      } catch (err) {
+        console.warn("handleMouseMove error:", err)
       }
     },
     [isDrawing, dragStart]
@@ -616,7 +648,15 @@ export function LeafletMap({
     (e: React.MouseEvent) => {
       if (!isDrawing || !dragStart || !mapRef.current) return
       const map = mapRef.current
-      const currentLatLng = map.mouseEventToLatLng(e.nativeEvent)
+      let currentLatLng = dragStart
+      try {
+        const converted = map.mouseEventToLatLng(e.nativeEvent)
+        if (converted && Number.isFinite(converted.lat) && Number.isFinite(converted.lng)) {
+          currentLatLng = converted
+        }
+      } catch (err) {
+        console.warn("handleMouseUp mouseEventToLatLng error:", err)
+      }
 
       const dragDistance = mouseStartPos.current
         ? Math.hypot(e.clientX - mouseStartPos.current.x, e.clientY - mouseStartPos.current.y)
@@ -678,7 +718,7 @@ export function LeafletMap({
       map.dragging.enable()
       setToolMode("navigate")
     },
-    [isDrawing, dragStart, onSelectArea]
+    [isDrawing, dragStart, onSelectArea, scene]
   )
 
   // ROI Mobile Touch Drag Handlers (critical for phone / farmer usage)
@@ -690,11 +730,16 @@ export function LeafletMap({
       touchStartPos.current = { x: touch.clientX, y: touch.clientY }
       const containerRect = containerRef.current?.getBoundingClientRect()
       if (!containerRect) return
-      const point = L.point(touch.clientX - containerRect.left, touch.clientY - containerRect.top)
-      const latlng = map.containerPointToLatLng(point)
-      setIsDrawing(true)
-      setDragStart(latlng)
-      map.dragging.disable()
+      try {
+        const point = L.point(touch.clientX - containerRect.left, touch.clientY - containerRect.top)
+        const latlng = map.containerPointToLatLng(point)
+        if (!latlng || !Number.isFinite(latlng.lat) || !Number.isFinite(latlng.lng)) return
+        setIsDrawing(true)
+        setDragStart(latlng)
+        map.dragging.disable()
+      } catch (err) {
+        console.warn("handleTouchStart error:", err)
+      }
     },
     [activeToolMode]
   )
@@ -702,24 +747,31 @@ export function LeafletMap({
   const handleTouchMove = useCallback(
     (e: React.TouchEvent) => {
       if (!isDrawing || !dragStart || !mapRef.current || e.touches.length === 0) return
+      if (!Number.isFinite(dragStart.lat) || !Number.isFinite(dragStart.lng)) return
       const map = mapRef.current
       const touch = e.touches[0]
       const containerRect = containerRef.current?.getBoundingClientRect()
       if (!containerRect) return
-      const point = L.point(touch.clientX - containerRect.left, touch.clientY - containerRect.top)
-      const currentLatLng = map.containerPointToLatLng(point)
-      const bounds = L.latLngBounds(dragStart, currentLatLng)
+      try {
+        const point = L.point(touch.clientX - containerRect.left, touch.clientY - containerRect.top)
+        const currentLatLng = map.containerPointToLatLng(point)
+        if (!currentLatLng || !Number.isFinite(currentLatLng.lat) || !Number.isFinite(currentLatLng.lng)) return
+        const bounds = L.latLngBounds(dragStart, currentLatLng)
+        if (!bounds.isValid()) return
 
-      if (selectionRectRef.current) {
-        selectionRectRef.current.setBounds(bounds)
-      } else {
-        selectionRectRef.current = L.rectangle(bounds, {
-          color: "#06b6d4",
-          weight: 2.5,
-          fillColor: "#22d3ee",
-          fillOpacity: 0.22,
-          dashArray: "6, 6",
-        }).addTo(map)
+        if (selectionRectRef.current) {
+          selectionRectRef.current.setBounds(bounds)
+        } else {
+          selectionRectRef.current = L.rectangle(bounds, {
+            color: "#06b6d4",
+            weight: 2.5,
+            fillColor: "#22d3ee",
+            fillOpacity: 0.22,
+            dashArray: "6, 6",
+          }).addTo(map)
+        }
+      } catch (err) {
+        console.warn("handleTouchMove error:", err)
       }
     },
     [isDrawing, dragStart]
@@ -734,8 +786,15 @@ export function LeafletMap({
 
       let currentLatLng = dragStart
       if (containerRect && touch) {
-        const point = L.point(touch.clientX - containerRect.left, touch.clientY - containerRect.top)
-        currentLatLng = map.containerPointToLatLng(point)
+        try {
+          const point = L.point(touch.clientX - containerRect.left, touch.clientY - containerRect.top)
+          const converted = map.containerPointToLatLng(point)
+          if (converted && Number.isFinite(converted.lat) && Number.isFinite(converted.lng)) {
+            currentLatLng = converted
+          }
+        } catch (err) {
+          console.warn("handleTouchEnd containerPointToLatLng error:", err)
+        }
       }
 
       const dragDistance = touchStartPos.current && touch
@@ -920,7 +979,13 @@ export function LeafletMap({
           type="button"
           onClick={() => {
             const [lat, lon] = parseCenter(scene)
-            mapRef.current?.flyTo([lat, lon], 13.5, { duration: 1 })
+            if (Number.isFinite(lat) && Number.isFinite(lon)) {
+              try {
+                mapRef.current?.flyTo([lat, lon], 13.5, { duration: 1 })
+              } catch (e) {
+                console.warn("flyTo recenter error:", e)
+              }
+            }
           }}
           className="rounded-lg p-2 text-foreground hover:bg-secondary transition-all active:scale-90 cursor-pointer"
           title="Recenter Map View (⌖)"
