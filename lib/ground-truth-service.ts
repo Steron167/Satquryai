@@ -12,16 +12,19 @@ export interface GroundTruthResult {
   buildingCount?: number
 }
 
-export async function fetchGroundTruth(bounds: {
-  south: number
-  west: number
-  north: number
-  east: number
-}): Promise<GroundTruthResult> {
+export async function fetchGroundTruth(
+  bounds: {
+    south: number
+    west: number
+    north: number
+    east: number
+  },
+  isGreenVegetation?: boolean
+): Promise<GroundTruthResult> {
   const centerLat = (bounds.south + bounds.north) / 2
   const centerLon = (bounds.west + bounds.east) / 2
 
-  // Default regional result if no network/ground-truth match
+  // Default regional result
   const defaultResult: GroundTruthResult = {
     isUrbanSettlement: false,
     isAgricultural: true,
@@ -29,29 +32,6 @@ export async function fetchGroundTruth(bounds: {
     placeName: "Regional Parcel",
     confidence: 0.85,
     summary: "Agricultural / Open vegetative terrain",
-  }
-
-  // Deterministic local registry for verified coordinates (Kopargaon urban core / Annapurna Nagar)
-  // Lat: 19.875 to 19.898, Lon: 74.465 to 74.492 is Kopargaon municipal urban core
-  if (
-    centerLat >= 19.875 &&
-    centerLat <= 19.898 &&
-    centerLon >= 74.465 &&
-    centerLon <= 74.492
-  ) {
-    return {
-      isUrbanSettlement: true,
-      isAgricultural: false,
-      isWaterBody: false,
-      placeName: "Annapurna Nagar / Kopargaon Town Core",
-      settlementType: "residential",
-      suburb: "Annapurna Nagar",
-      town: "Kopargaon",
-      rawOsmType: "highway:residential",
-      confidence: 0.99,
-      summary: "Dense built-up residential settlement with concrete/tiled roof clusters and paved street network in Kopargaon, Maharashtra",
-      buildingCount: 142,
-    }
   }
 
   try {
@@ -76,8 +56,26 @@ export async function fetchGroundTruth(bounds: {
     const suburb = address.suburb || address.neighbourhood || address.residential || address.city_district || ""
     const town = address.town || address.city || address.village || ""
     const displayName = data.display_name || ""
+    const placeName = displayName.split(",").slice(0, 2).join(",").trim() || (town ? `${town} Area` : "Regional Area")
 
-    // Check for clear urban/built-up indicators
+    // If spectral analysis confirmed green photosynthetic vegetation,
+    // this parcel is undeniably active cropland (even if located in peri-urban town limits)
+    if (isGreenVegetation) {
+      return {
+        isUrbanSettlement: false,
+        isAgricultural: true,
+        isWaterBody: false,
+        placeName,
+        settlementType: "farmland",
+        suburb,
+        town,
+        rawOsmType: "landuse:farmland",
+        confidence: 0.98,
+        summary: `Active agricultural cropland and cultivated parcel in ${placeName}`,
+      }
+    }
+
+    // Check for clear urban/built-up indicators (only when NOT green vegetation)
     const isResidentialStreet =
       osmClass === "highway" &&
       (osmType === "residential" || osmType === "living_street" || osmType === "pedestrian")
@@ -120,17 +118,7 @@ export async function fetchGroundTruth(bounds: {
       (osmClass === "natural" && (osmType === "water" || osmType === "wetland")) ||
       ["river", "canal", "stream", "pond", "reservoir", "lake", "drain"].includes(osmType)
 
-    const isAgricultural =
-      !isUrbanSettlement &&
-      !isWaterBody &&
-      ((osmClass === "landuse" &&
-        ["farmland", "farm", "orchard", "vineyard", "crop", "paddy", "greenhouse_horticulture"].includes(
-          osmType
-        )) ||
-        (osmClass === "natural" && ["wood", "tree_row", "scrub", "grassland", "heath"].includes(osmType)) ||
-        osmType === "track" ||
-        addressType === "farm" ||
-        !isBuilding)
+    const isAgricultural = !isUrbanSettlement && !isWaterBody
 
     const summary = isUrbanSettlement
       ? `Dense Built-up Urban Settlement (${suburb ? `${suburb}, ` : ""}${town || "City"}) with residential structures and street grid`
@@ -142,7 +130,7 @@ export async function fetchGroundTruth(bounds: {
       isUrbanSettlement,
       isAgricultural,
       isWaterBody,
-      placeName: displayName.split(",").slice(0, 2).join(",").trim() || "Regional Area",
+      placeName,
       settlementType: osmType,
       suburb,
       town,
