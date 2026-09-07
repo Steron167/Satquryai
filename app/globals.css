@@ -49,9 +49,11 @@
     --color-blue-500: oklch(62.3% 0.214 259.815);
     --color-blue-950: oklch(28.2% 0.091 267.935);
     --color-rose-100: oklch(94.1% 0.03 12.58);
+    --color-rose-200: oklch(89.2% 0.058 10.001);
     --color-rose-300: oklch(81% 0.117 11.638);
     --color-rose-400: oklch(71.2% 0.194 13.428);
     --color-rose-500: oklch(64.5% 0.246 16.439);
+    --color-rose-600: oklch(58.6% 0.253 17.585);
     --color-rose-950: oklch(27.1% 0.105 12.094);
     --color-slate-800: oklch(27.9% 0.041 260.031);
     --color-slate-950: oklch(12.9% 0.042 264.695);
@@ -628,6 +630,9 @@
   .max-w-\[94\%\] {
     max-width: 94%;
   }
+  .max-w-\[95\%\] {
+    max-width: 95%;
+  }
   .max-w-\[95vw\] {
     max-width: 95vw;
   }
@@ -974,10 +979,10 @@
       border-color: color-mix(in oklab, var(--color-cyan-500) 40%, transparent);
     }
   }
-  .border-cyan-500\/80 {
-    border-color: color-mix(in srgb, oklch(71.5% 0.143 215.221) 80%, transparent);
+  .border-cyan-500\/70 {
+    border-color: color-mix(in srgb, oklch(71.5% 0.143 215.221) 70%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
-      border-color: color-mix(in oklab, var(--color-cyan-500) 80%, transparent);
+      border-color: color-mix(in oklab, var(--color-cyan-500) 70%, transparent);
     }
   }
   .border-emerald-500 {
@@ -1067,10 +1072,22 @@
       border-color: color-mix(in oklab, var(--color-rose-500) 30%, transparent);
     }
   }
+  .border-rose-500\/40 {
+    border-color: color-mix(in srgb, oklch(64.5% 0.246 16.439) 40%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-rose-500) 40%, transparent);
+    }
+  }
   .border-rose-500\/50 {
     border-color: color-mix(in srgb, oklch(64.5% 0.246 16.439) 50%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       border-color: color-mix(in oklab, var(--color-rose-500) 50%, transparent);
+    }
+  }
+  .border-rose-500\/60 {
+    border-color: color-mix(in srgb, oklch(64.5% 0.246 16.439) 60%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-rose-500) 60%, transparent);
     }
   }
   .border-sky-400\/80 {
@@ -1214,12 +1231,6 @@
   .bg-cyan-500 {
     background-color: var(--color-cyan-500);
   }
-  .bg-cyan-900\/80 {
-    background-color: color-mix(in srgb, oklch(39.8% 0.07 227.392) 80%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-cyan-900) 80%, transparent);
-    }
-  }
   .bg-cyan-950 {
     background-color: var(--color-cyan-950);
   }
@@ -1344,6 +1355,12 @@
     background-color: color-mix(in srgb, oklch(64.5% 0.246 16.439) 20%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-rose-500) 20%, transparent);
+    }
+  }
+  .bg-rose-600\/30 {
+    background-color: color-mix(in srgb, oklch(58.6% 0.253 17.585) 30%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-rose-600) 30%, transparent);
     }
   }
   .bg-secondary {
@@ -1731,6 +1748,9 @@
   .text-red-400 {
     color: var(--color-red-400);
   }
+  .text-rose-200 {
+    color: var(--color-rose-200);
+  }
   .text-rose-300 {
     color: var(--color-rose-300);
   }
@@ -2007,9 +2027,6 @@
     .hover\:bg-cyan-400:hover {
       background-color: var(--color-cyan-400);
     }
-    .hover\:bg-cyan-800:hover {
-      background-color: var(--color-cyan-800);
-    }
     .hover\:bg-destructive\/20:hover {
       background-color: var(--destructive);
     }
@@ -2094,6 +2111,22 @@
         background-color: color-mix(in oklab, var(--color-rose-500) 30%, transparent);
       }
     }
+    .hover\:bg-rose-500\/35:hover {
+      background-color: color-mix(in srgb, oklch(64.5% 0.246 16.439) 35%, transparent);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-rose-500\/35:hover {
+        background-color: color-mix(in oklab, var(--color-rose-500) 35%, transparent);
+      }
+    }
+    .hover\:bg-rose-600\/50:hover {
+      background-color: color-mix(in srgb, oklch(58.6% 0.253 17.585) 50%, transparent);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-rose-600\/50:hover {
+        background-color: color-mix(in oklab, var(--color-rose-600) 50%, transparent);
+      }
+    }
     .hover\:bg-rose-950\/60:hover {
       background-color: color-mix(in srgb, oklch(27.1% 0.105 12.094) 60%, transparent);
     }
@@ -2128,9 +2161,6 @@
       .hover\:bg-sky-500\/20:hover {
         background-color: color-mix(in oklab, var(--color-sky-500) 20%, transparent);
       }
-    }
-    .hover\:bg-slate-800:hover {
-      background-color: var(--color-slate-800);
     }
     .hover\:text-destructive:hover {
       color: var(--destructive);
@@ -2186,6 +2216,12 @@
     --tw-scale-x: 90%;
     --tw-scale-y: 90%;
     --tw-scale-z: 90%;
+    scale: var(--tw-scale-x) var(--tw-scale-y);
+  }
+  .active\:scale-95:active {
+    --tw-scale-x: 95%;
+    --tw-scale-y: 95%;
+    --tw-scale-z: 95%;
     scale: var(--tw-scale-x) var(--tw-scale-y);
   }
   .active\:not-aria-\[haspopup\]\:translate-y-px:active:not([aria-haspopup]) {

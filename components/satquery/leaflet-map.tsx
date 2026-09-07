@@ -16,6 +16,7 @@ import {
   Droplets,
   Sun,
   ChevronRight,
+  X,
 } from "lucide-react"
 import type { ViewerState, SelectedArea } from "./types"
 import type { SceneMeta, LayerId, DetectionBox } from "@/lib/satquery-data"
@@ -23,6 +24,8 @@ import type { SceneMeta, LayerId, DetectionBox } from "@/lib/satquery-data"
 // Global Leaflet crash prevention: ensure invalid NaN coordinates never throw fatal unhandled exceptions
 if (typeof window !== "undefined" && typeof L !== "undefined") {
   const anyL = L as any
+
+  // 1. LatLng & latLng sanitization
   if (anyL.LatLng && !anyL.LatLng.__satqueryProtected) {
     const OriginalLatLng = anyL.LatLng
     function SafeLatLng(lat: any, lng: any, alt?: any) {
@@ -54,15 +57,144 @@ if (typeof window !== "undefined" && typeof L !== "undefined") {
     }
   }
 
+  // 2. Projection unproject protection
+  if (anyL.Projection && anyL.Projection.SphericalMercator && !anyL.Projection.SphericalMercator.__satqueryProtected) {
+    const origSMUnproject = anyL.Projection.SphericalMercator.unproject
+    anyL.Projection.SphericalMercator.unproject = function (point: any) {
+      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+        return new anyL.LatLng(19.8824, 74.4789)
+      }
+      try {
+        const res = origSMUnproject.call(this, point)
+        if (res && Number.isFinite(res.lat) && Number.isFinite(res.lng)) return res
+      } catch (err) {}
+      return new anyL.LatLng(19.8824, 74.4789)
+    }
+    anyL.Projection.SphericalMercator.__satqueryProtected = true
+  }
+
+  // 3. LatLngBounds prototype protection
+  if (anyL.LatLngBounds && anyL.LatLngBounds.prototype && !anyL.LatLngBounds.prototype.__satqueryProtected) {
+    const origBoundsCenter = anyL.LatLngBounds.prototype.getCenter
+    anyL.LatLngBounds.prototype.getCenter = function () {
+      try {
+        const c = origBoundsCenter.call(this)
+        if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) return c
+      } catch (err) {}
+      return new anyL.LatLng(19.8824, 74.4789)
+    }
+
+    const origBoundsPad = anyL.LatLngBounds.prototype.pad
+    anyL.LatLngBounds.prototype.pad = function (bufferRatio: any) {
+      try {
+        if (!this.isValid()) return this
+        return origBoundsPad.call(this, bufferRatio)
+      } catch (err) {
+        return this
+      }
+    }
+    anyL.LatLngBounds.prototype.__satqueryProtected = true
+  }
+
+  // 4. Map prototype protection
   if (anyL.Map && anyL.Map.prototype && !anyL.Map.prototype.__satqueryProtected) {
+    const origGetCenter = anyL.Map.prototype.getCenter
+    anyL.Map.prototype.getCenter = function () {
+      try {
+        const c = origGetCenter.call(this)
+        if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) return c
+      } catch (err) {}
+      return new anyL.LatLng(19.8824, 74.4789)
+    }
+
+    const origGetBounds = anyL.Map.prototype.getBounds
+    anyL.Map.prototype.getBounds = function () {
+      try {
+        const b = origGetBounds.call(this)
+        if (b && typeof b.isValid === "function" && b.isValid()) return b
+      } catch (err) {}
+      return anyL.latLngBounds([19.8474, 74.4439], [19.9174, 74.5139])
+    }
+
+    const origUnproject = anyL.Map.prototype.unproject
+    anyL.Map.prototype.unproject = function (point: any, zoom: any) {
+      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+        return new anyL.LatLng(19.8824, 74.4789)
+      }
+      try {
+        const res = origUnproject.call(this, point, zoom)
+        if (res && Number.isFinite(res.lat) && Number.isFinite(res.lng)) return res
+      } catch (err) {}
+      return new anyL.LatLng(19.8824, 74.4789)
+    }
+
+    const origLayerPointToLatLng = anyL.Map.prototype.layerPointToLatLng
+    anyL.Map.prototype.layerPointToLatLng = function (point: any) {
+      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+        return new anyL.LatLng(19.8824, 74.4789)
+      }
+      try {
+        const res = origLayerPointToLatLng.call(this, point)
+        if (res && Number.isFinite(res.lat) && Number.isFinite(res.lng)) return res
+      } catch (err) {}
+      return new anyL.LatLng(19.8824, 74.4789)
+    }
+
+    const origContainerPointToLatLng = anyL.Map.prototype.containerPointToLatLng
+    anyL.Map.prototype.containerPointToLatLng = function (point: any) {
+      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+        return new anyL.LatLng(19.8824, 74.4789)
+      }
+      try {
+        const res = origContainerPointToLatLng.call(this, point)
+        if (res && Number.isFinite(res.lat) && Number.isFinite(res.lng)) return res
+      } catch (err) {}
+      return new anyL.LatLng(19.8824, 74.4789)
+    }
+
+    const origGetBoundsCenterZoom = anyL.Map.prototype._getBoundsCenterZoom
+    anyL.Map.prototype._getBoundsCenterZoom = function (bounds: any, options: any) {
+      try {
+        const size = this.getSize()
+        if (!size || size.x <= 20 || size.y <= 20) {
+          return { center: new anyL.LatLng(19.8824, 74.4789), zoom: this._zoom || 13 }
+        }
+        const res = origGetBoundsCenterZoom.call(this, bounds, options)
+        if (
+          res &&
+          res.center &&
+          Number.isFinite(res.center.lat) &&
+          Number.isFinite(res.center.lng) &&
+          Number.isFinite(res.zoom)
+        ) {
+          return res
+        }
+      } catch (err) {}
+      return { center: new anyL.LatLng(19.8824, 74.4789), zoom: this._zoom || 13 }
+    }
+
+    const origInvalidateSize = anyL.Map.prototype.invalidateSize
+    anyL.Map.prototype.invalidateSize = function (options: any) {
+      try {
+        const size = this.getSize()
+        if (!size || size.x <= 20 || size.y <= 20) return this
+        return origInvalidateSize.call(this, options)
+      } catch (err) {
+        return this
+      }
+    }
+
     const origFlyTo = anyL.Map.prototype.flyTo
     anyL.Map.prototype.flyTo = function (target: any, zoom: any, options: any) {
       try {
         const size = this.getSize()
         if (!size || size.x <= 20 || size.y <= 20) return this
-        return origFlyTo.call(this, target, zoom, options)
+        const safeTarget = anyL.latLng(target)
+        if (!safeTarget || !Number.isFinite(safeTarget.lat) || !Number.isFinite(safeTarget.lng)) {
+          return this
+        }
+        return origFlyTo.call(this, safeTarget, zoom, options)
       } catch (err) {
-        console.warn("Leaflet flyTo suppressed error:", err)
         return this
       }
     }
@@ -72,9 +204,13 @@ if (typeof window !== "undefined" && typeof L !== "undefined") {
       try {
         const size = this.getSize()
         if (!size || size.x <= 20 || size.y <= 20) return this
-        return origFlyToBounds.call(this, bounds, options)
+        const b = bounds && bounds.getBounds ? bounds.getBounds() : anyL.latLngBounds(bounds)
+        if (!b || !b.isValid()) return this
+        if (Math.abs(b.getNorth() - b.getSouth()) < 0.0001 || Math.abs(b.getEast() - b.getWest()) < 0.0001) {
+          return this.flyTo(b.getCenter(), options?.maxZoom || 16, options)
+        }
+        return origFlyToBounds.call(this, b, options)
       } catch (err) {
-        console.warn("Leaflet flyToBounds suppressed error:", err)
         return this
       }
     }
@@ -84,9 +220,13 @@ if (typeof window !== "undefined" && typeof L !== "undefined") {
       try {
         const size = this.getSize()
         if (!size || size.x <= 20 || size.y <= 20) return this
-        return origFitBounds.call(this, bounds, options)
+        const b = bounds && bounds.getBounds ? bounds.getBounds() : anyL.latLngBounds(bounds)
+        if (!b || !b.isValid()) return this
+        if (Math.abs(b.getNorth() - b.getSouth()) < 0.0001 || Math.abs(b.getEast() - b.getWest()) < 0.0001) {
+          return this.setView(b.getCenter(), options?.maxZoom || 16, options)
+        }
+        return origFitBounds.call(this, b, options)
       } catch (err) {
-        console.warn("Leaflet fitBounds suppressed error:", err)
         return this
       }
     }
@@ -194,10 +334,60 @@ export function LeafletMap({
   const [isDrawing, setIsDrawing] = useState(false)
   const [dragStart, setDragStart] = useState<L.LatLng | null>(null)
   const [radarThreshold, setRadarThreshold] = useState(-14)
+  const [containerReady, setContainerReady] = useState(false)
 
-  // Initialize Leaflet Map
+  // Ensure container has valid DOM dimensions (> 50px) before initializing Leaflet
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
+    const el = containerRef.current
+    if (el.clientWidth > 50 && el.clientHeight > 50) {
+      setContainerReady(true)
+      return
+    }
+
+    const checkInterval = setInterval(() => {
+      if (containerRef.current && containerRef.current.clientWidth > 50 && containerRef.current.clientHeight > 50) {
+        setContainerReady(true)
+        clearInterval(checkInterval)
+      }
+    }, 50)
+
+    let ro: ResizeObserver | null = null
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.contentRect.width > 50 && entry.contentRect.height > 50) {
+            setContainerReady(true)
+            clearInterval(checkInterval)
+          }
+        }
+      })
+      ro.observe(el)
+    }
+
+    return () => {
+      clearInterval(checkInterval)
+      ro?.disconnect()
+    }
+  }, [])
+
+  // Instantly strip markers when state clears
+  useEffect(() => {
+    if (!state.selectedAOI && selectionRectRef.current) {
+      selectionRectRef.current.remove()
+      selectionRectRef.current = null
+    }
+    if ((!state.dynamicBoxes || state.dynamicBoxes.length === 0) && detectionMarkersRef.current) {
+      detectionMarkersRef.current.clearLayers()
+    }
+    if (!state.flood && floodLayerGroupRef.current) {
+      floodLayerGroupRef.current.clearLayers()
+    }
+  }, [state.selectedAOI, state.dynamicBoxes, state.flood])
+
+  // Initialize Leaflet Map safely
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current || !containerReady) return
 
     const [initLat, initLon] = parseCenter(scene)
 
@@ -305,7 +495,7 @@ export function LeafletMap({
       map.remove()
       mapRef.current = null
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [containerReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle external map actions (zoomIn, zoomOut, recenter) from top toolbar
   useEffect(() => {
@@ -1029,18 +1219,20 @@ export function LeafletMap({
         </button>
       )}
 
-      {/* Selected AOI Floating Action Banner (Top Center) */}
-      {selectedAOI && (
-        <div className="pointer-events-auto absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 rounded-xl border border-cyan-500/80 bg-slate-950/95 px-3 py-1.5 text-cyan-300 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2">
-          <span className="size-2 rounded-full bg-cyan-400 animate-ping" />
-          <span className="font-semibold text-xs font-mono">
-            Selected Sub-Region: ~{selectedAOI.areaKm2} km²
+      {/* Unified Floating Action Banner for Selected AOI / Detections (Top Center) */}
+      {(selectedAOI || (state.detections && state.dynamicBoxes && state.dynamicBoxes.length > 0)) && (
+        <div className="pointer-events-auto absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex flex-wrap items-center justify-center gap-2 rounded-xl border border-cyan-500/70 bg-slate-950/95 px-3.5 py-1.5 text-cyan-300 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 max-w-[95%]">
+          <span className="size-2 rounded-full bg-cyan-400 animate-ping shrink-0" />
+          <span className="font-semibold text-xs font-mono whitespace-nowrap">
+            {selectedAOI && `Area: ~${selectedAOI.areaKm2} km²`}
+            {selectedAOI && state.dynamicBoxes && state.dynamicBoxes.length > 0 && " · "}
+            {state.dynamicBoxes && state.dynamicBoxes.length > 0 && `${state.dynamicBoxes.length} Features Marked`}
           </span>
-          {onAnalyzeArea && (
+          {selectedAOI && onAnalyzeArea && (!state.dynamicBoxes || state.dynamicBoxes.length === 0) && (
             <button
               type="button"
               onClick={() => onAnalyzeArea(selectedAOI)}
-              className="ml-1 flex items-center gap-1 rounded-lg bg-cyan-500 px-2.5 py-1 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition-all shadow-md cursor-pointer"
+              className="flex items-center gap-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-2.5 py-1 text-xs font-bold transition-all shadow-md cursor-pointer"
             >
               <Sparkles className="size-3" />
               <span>Analyze with Gemini</span>
@@ -1049,30 +1241,11 @@ export function LeafletMap({
           <button
             type="button"
             onClick={handleClearAOI}
-            className="ml-1 flex items-center gap-1 rounded px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-slate-800 transition-colors cursor-pointer text-xs"
-            title="Clear Area Selection & Markings"
+            className="flex items-center gap-1.5 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-200 border border-rose-500/60 px-3 py-1 font-bold text-xs transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
+            title="Clear all marked areas and features from map"
           >
-            <span>✕</span>
-            <span className="hidden sm:inline text-[10px]">Clear Marks</span>
-          </button>
-        </div>
-      )}
-
-      {/* Active Detection Grounding Banner with Clear Button (when AOI is not active) */}
-      {!selectedAOI && !state.flood && state.detections && state.dynamicBoxes && state.dynamicBoxes.length > 0 && (
-        <div className="pointer-events-auto absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2.5 rounded-xl border border-amber-500/80 bg-slate-950/95 px-3 py-1.5 text-xs text-amber-200 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2">
-          <span className="size-2 rounded-full bg-amber-400 animate-ping" />
-          <span className="font-semibold text-xs font-mono">
-            {state.dynamicBoxes.length} Ground Features Marked
-          </span>
-          <button
-            type="button"
-            onClick={handleClearAOI}
-            className="flex items-center gap-1 rounded-lg bg-amber-500/20 px-2 py-0.5 text-[11px] font-bold text-amber-300 hover:bg-amber-500/30 border border-amber-500/40 transition-all cursor-pointer"
-            title="Clear all detection bounding boxes from map"
-          >
-            <span>✕ निशान हटाएं</span>
-            <span className="hidden sm:inline text-[9px] opacity-80">(Clear Marks)</span>
+            <X className="size-3.5 text-rose-300" />
+            <span>✕ Clear Marks / निशान हटाएं</span>
           </button>
         </div>
       )}

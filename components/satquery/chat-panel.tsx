@@ -270,6 +270,17 @@ export function ChatPanel({
                           <Target className="size-2.5" /> {m.boundingBoxes.length} Objects Localized
                         </span>
                       )}
+                      {m.boundingBoxes && m.boundingBoxes.length > 0 && onClearAOI && (
+                        <button
+                          type="button"
+                          onClick={onClearAOI}
+                          className="inline-flex items-center gap-1 rounded bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/40 px-2 py-0.5 text-[10px] font-semibold transition-colors cursor-pointer"
+                          title="Clear markings from map"
+                        >
+                          <X className="size-2.5 text-rose-400" />
+                          <span>Clear Marks (हटाएं)</span>
+                        </button>
+                      )}
                       {m.recommendedLayer && (
                         <span className="inline-flex items-center gap-1 rounded bg-secondary px-1.5 py-0.5 text-muted-foreground border border-border">
                           <Layers className="size-2.5 text-primary" /> {m.recommendedLayer.toUpperCase()}
@@ -373,10 +384,10 @@ export function ChatPanel({
               type="button"
               onClick={onClearAOI}
               title="Clear area focus and return to whole scene"
-              className="ml-2 flex items-center gap-1 rounded bg-cyan-900/80 px-2 py-0.5 text-[10px] font-medium text-cyan-300 hover:bg-cyan-800 hover:text-white transition-colors cursor-pointer"
+              className="ml-2 flex items-center gap-1.5 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-200 border border-rose-500/50 px-2.5 py-1 text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 whitespace-nowrap"
             >
-              <X className="size-3" />
-              <span>हटाएं (Clear)</span>
+              <X className="size-3 text-rose-300" />
+              <span>✕ निशान हटाएं (Clear)</span>
             </button>
           )}
         </div>

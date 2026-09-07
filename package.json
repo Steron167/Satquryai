@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/patch-leaflet.js",
     "build:css": "node scripts/build-css.js",
-    "dev": "node scripts/build-css.js && next dev",
-    "build": "node scripts/build-css.js && next build",
+    "dev": "node scripts/patch-leaflet.js && node scripts/build-css.js && next dev",
+    "build": "node scripts/patch-leaflet.js && node scripts/build-css.js && next build",
     "start": "next start"
   },
   "dependencies": {

@@ -101,12 +101,14 @@ export default function Page() {
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false)
   const [mobileTab, setMobileTab] = useState<"map" | "chat" | "places" | "report">("map")
-  const [isDesktop, setIsDesktop] = useState(true)
+  const [mounted, setMounted] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(false)
 
   useEffect(() => {
     if (typeof window === "undefined") return
     const mq = window.matchMedia("(min-width: 1024px)")
     setIsDesktop(mq.matches)
+    setMounted(true)
     const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
     mq.addEventListener("change", handler)
     return () => mq.removeEventListener("change", handler)
@@ -609,7 +611,7 @@ export default function Page() {
               </div>
             )}
 
-            {isDesktop && (
+            {mounted && isDesktop && (
               <ImageViewer
                 state={viewer}
                 scene={activeScene}
@@ -676,7 +678,7 @@ export default function Page() {
               mobileTab === "map" ? "flex flex-col z-10" : "invisible pointer-events-none absolute inset-0 -z-10"
             }`}
           >
-            {!isDesktop && (
+            {mounted && !isDesktop && (
               <ImageViewer
                 state={viewer}
                 scene={activeScene}
