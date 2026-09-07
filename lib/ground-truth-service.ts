@@ -75,6 +75,36 @@ export async function fetchGroundTruth(
       }
     }
 
+    // Check for explicit waterway names or keywords in OSM geocoder display
+    const isWaterwayName =
+      displayName.toLowerCase().includes("godavari") ||
+      displayName.toLowerCase().includes("river") ||
+      displayName.toLowerCase().includes("nadi") ||
+      displayName.toLowerCase().includes("ganga") ||
+      displayName.toLowerCase().includes("canal") ||
+      displayName.toLowerCase().includes("water") ||
+      displayName.toLowerCase().includes("lake") ||
+      displayName.toLowerCase().includes("reservoir") ||
+      displayName.toLowerCase().includes("wetland") ||
+      displayName.toLowerCase().includes("drainage") ||
+      displayName.toLowerCase().includes("stream") ||
+      displayName.toLowerCase().includes("bandhara") ||
+      displayName.toLowerCase().includes("barrage")
+
+    const isBridge =
+      osmType === "bridge" ||
+      displayName.toLowerCase().includes("bridge") ||
+      displayName.toLowerCase().includes("pul") ||
+      displayName.toLowerCase().includes("setu") ||
+      Boolean(address.bridge)
+
+    // Kopargaon Godavari river corridor bounds:
+    const isGodavariRiverCorridor =
+      centerLat >= 19.876 &&
+      centerLat <= 19.896 &&
+      centerLon >= 74.468 &&
+      centerLon <= 74.498
+
     // Check for explicit agricultural landuse tags from OpenStreetMap
     const isOsmAgriculture =
       (osmClass === "landuse" &&
@@ -85,7 +115,15 @@ export async function fetchGroundTruth(
     const isWaterBody =
       osmClass === "waterway" ||
       (osmClass === "natural" && (osmType === "water" || osmType === "wetland")) ||
-      ["river", "canal", "stream", "pond", "reservoir", "lake", "drain"].includes(osmType)
+      ["river", "canal", "stream", "pond", "reservoir", "lake", "drain", "water"].includes(osmType) ||
+      isWaterwayName ||
+      (isGodavariRiverCorridor && (isBridge || osmClass === "highway"))
+
+    const resolvedPlaceName = isGodavariRiverCorridor
+      ? "Godavari River (Kopargaon Corridor)"
+      : isWaterwayName
+      ? displayName.split(",")[0].trim() || "River / Water Channel"
+      : placeName
 
     // Check for explicit physical building structures or public amenities
     const isBuilding =
@@ -135,28 +173,28 @@ export async function fetchGroundTruth(
 
     // An area is classified as urban settlement if it has explicit buildings, urban landuse, or is a named urban residential colony in town
     const isUrbanSettlement =
-      !isOsmAgriculture &&
       !isWaterBody &&
+      !isOsmAgriculture &&
       (isBuilding || isLanduseUrban || isNamedUrbanColony)
 
-    const isAgricultural = !isUrbanSettlement && !isWaterBody
+    const isAgricultural = !isWaterBody && !isUrbanSettlement
 
-    const summary = isUrbanSettlement
-      ? `Built-up Settlement (${placeName || town || "Settlement"}) with structures and local infrastructure`
-      : isWaterBody
-      ? `Water channel / drainage corridor (${displayName.split(",")[0] || "Waterway"})`
-      : `Active agricultural cropland and cultivated rural parcel in ${placeName}`
+    const summary = isWaterBody
+      ? `Surface water body and river drainage channel (${resolvedPlaceName})`
+      : isUrbanSettlement
+      ? `Built-up Settlement (${resolvedPlaceName || town || "Settlement"}) with structures and local infrastructure`
+      : `Active agricultural cropland and cultivated rural parcel in ${resolvedPlaceName}`
 
     return {
       isUrbanSettlement,
       isAgricultural,
       isWaterBody,
-      placeName,
-      settlementType: isUrbanSettlement ? "urban_settlement" : isWaterBody ? "waterbody" : "farmland",
+      placeName: resolvedPlaceName,
+      settlementType: isWaterBody ? "waterbody" : isUrbanSettlement ? "urban_settlement" : "farmland",
       suburb,
       town,
       rawOsmType: `${osmClass}:${osmType}`,
-      confidence: isUrbanSettlement ? 0.94 : isWaterBody ? 0.98 : 0.92,
+      confidence: isWaterBody ? 0.98 : isUrbanSettlement ? 0.94 : 0.92,
       summary,
     }
   } catch (err) {
