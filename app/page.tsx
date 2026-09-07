@@ -400,7 +400,7 @@ export default function Page() {
 
   const handleAnalyzeArea = useCallback(
     (aoi: SelectedArea) => {
-      const prompt = `Perform detailed spatial analysis on the highlighted sub-region [${aoi.bounds.south.toFixed(3)}°N, ${aoi.bounds.west.toFixed(3)}°E to ${aoi.bounds.north.toFixed(3)}°N, ${aoi.bounds.east.toFixed(3)}°E] covering ~${aoi.areaKm2} km² in ${activeScene.name}. What key terrain, water bodies, vegetation vigor, and infrastructure are visible inside this specific area?`
+      const prompt = `Perform detailed spatial land-cover and crop analysis on the selected field parcel [${aoi.bounds.south.toFixed(3)}°N, ${aoi.bounds.west.toFixed(3)}°E to ${aoi.bounds.north.toFixed(3)}°N, ${aoi.bounds.east.toFixed(3)}°E] covering ~${aoi.areaKm2} km² in ${activeScene.name}. What is the dominant land cover, vegetation vigor, and crop status inside this specific area?`
       handleSend(prompt, aoi)
     },
     [handleSend, activeScene.name]

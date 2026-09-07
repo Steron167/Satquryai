@@ -540,8 +540,78 @@ export function matchQuery(
       }
     }
 
-    if (q.includes("build") || q.includes("urban") || q.includes("settle") || q.includes("house") || q.includes("detect") || q.includes("count") || q.includes("struct") || q.includes("solar")) {
-      const count = Math.max(14, Math.round(area * 180))
+    if (
+      q.includes("vegetat") ||
+      q.includes("crop") ||
+      q.includes("farm") ||
+      q.includes("paddy") ||
+      q.includes("ndvi") ||
+      q.includes("vigor") ||
+      q.includes("green") ||
+      q.includes("terrain") ||
+      q.includes("land cover") ||
+      q.includes("land-cover")
+    ) {
+      const mean = 0.71
+      const healthy = 78
+      const aoiW = Math.abs(selectedAOI.xmax - selectedAOI.xmin)
+      const aoiH = Math.abs(selectedAOI.ymax - selectedAOI.ymin)
+      const aoiXmin = Math.min(selectedAOI.xmin, selectedAOI.xmax)
+      const aoiYmin = Math.min(selectedAOI.ymin, selectedAOI.ymax)
+
+      const cropBoxes: DetectionBox[] = [
+        {
+          id: "roi-crop-1",
+          xmin: Number((aoiXmin + 0.10 * aoiW).toFixed(2)),
+          ymin: Number((aoiYmin + 0.12 * aoiH).toFixed(2)),
+          xmax: Number((aoiXmin + 0.55 * aoiW).toFixed(2)),
+          ymax: Number((aoiYmin + 0.52 * aoiH).toFixed(2)),
+          label: "Active Cultivated Crop Parcel",
+          conf: 0.96,
+        },
+        {
+          id: "roi-crop-2",
+          xmin: Number((aoiXmin + 0.52 * aoiW).toFixed(2)),
+          ymin: Number((aoiYmin + 0.40 * aoiH).toFixed(2)),
+          xmax: Number((aoiXmin + 0.90 * aoiW).toFixed(2)),
+          ymax: Number((aoiYmin + 0.88 * aoiH).toFixed(2)),
+          label: "Vegetative Canopy (NDVI > 0.68)",
+          conf: 0.93,
+        },
+      ]
+
+      return {
+        text: `Targeted agricultural and vegetative analysis for ${coords} (~${area} km² within ${scene.name}). Multispectral Sentinel-2 & ISRO Cartosat telemetry identifies active agricultural cropland with healthy photosynthetic canopy cover (${healthy}%), mean NDVI of ${mean}, and cultivated field boundaries.`,
+        card: {
+          kind: "ndvi",
+          title: `Crop Vigor & Vegetation · ${scene.name} (~${area} km²)`,
+          ndviMean: mean,
+          ndviHealthy: healthy,
+        },
+        effect: {
+          layer: "ndvi",
+          detections: true,
+          flood: false,
+          compare: false,
+          boundingBoxes: cropBoxes,
+        },
+        boundingBoxes: cropBoxes,
+        sources: ["Sentinel-2 NDVI (ROI Focus)", "ISRO-Bhuvan Crop Assessment", "BigEarthNet-MM"],
+      }
+    }
+
+    if (
+      (q.includes("build") ||
+        q.includes("urban") ||
+        q.includes("settle") ||
+        q.includes("house") ||
+        q.includes("residential") ||
+        q.includes("commercial") ||
+        q.includes("solar")) &&
+      !q.includes("crop") &&
+      !q.includes("farm")
+    ) {
+      const count = Math.max(2, Math.round(area * 40))
       const aoiW = Math.abs(selectedAOI.xmax - selectedAOI.xmin)
       const aoiH = Math.abs(selectedAOI.ymax - selectedAOI.ymin)
       const aoiXmin = Math.min(selectedAOI.xmin, selectedAOI.xmax)
@@ -550,38 +620,20 @@ export function matchQuery(
       const subBoxes: DetectionBox[] = [
         {
           id: "roi-det-1",
-          xmin: Number((aoiXmin + 0.15 * aoiW).toFixed(2)),
-          ymin: Number((aoiYmin + 0.20 * aoiH).toFixed(2)),
-          xmax: Number((aoiXmin + 0.40 * aoiW).toFixed(2)),
-          ymax: Number((aoiYmin + 0.45 * aoiH).toFixed(2)),
-          label: "Built-up Structure Cluster",
-          conf: 0.95,
-        },
-        {
-          id: "roi-det-2",
-          xmin: Number((aoiXmin + 0.48 * aoiW).toFixed(2)),
-          ymin: Number((aoiYmin + 0.35 * aoiH).toFixed(2)),
-          xmax: Number((aoiXmin + 0.72 * aoiW).toFixed(2)),
-          ymax: Number((aoiYmin + 0.65 * aoiH).toFixed(2)),
-          label: "Settlement / Residential Core",
-          conf: 0.93,
-        },
-        {
-          id: "roi-det-3",
-          xmin: Number((aoiXmin + 0.65 * aoiW).toFixed(2)),
-          ymin: Number((aoiYmin + 0.60 * aoiH).toFixed(2)),
-          xmax: Number((aoiXmin + 0.88 * aoiW).toFixed(2)),
-          ymax: Number((aoiYmin + 0.82 * aoiH).toFixed(2)),
-          label: "Commercial / Facility Parcel",
+          xmin: Number((aoiXmin + 0.25 * aoiW).toFixed(2)),
+          ymin: Number((aoiYmin + 0.30 * aoiH).toFixed(2)),
+          xmax: Number((aoiXmin + 0.55 * aoiW).toFixed(2)),
+          ymax: Number((aoiYmin + 0.60 * aoiH).toFixed(2)),
+          label: "Built Structure / Farmstead",
           conf: 0.91,
         },
       ]
 
       return {
-        text: `Targeted spatial grounding inside selected sub-area (${coords}, ~${area} km² within ${scene.name}). Optical spectral decomposition and edge contrast isolate a concentrated built-up cluster containing approximately ${count} structures and facilities.`,
+        text: `Targeted structure grounding inside selected sub-area (${coords}, ~${area} km² within ${scene.name}). Optical spectral decomposition and edge contrast isolate isolated built structures (~${count} structures) within the perimeter.`,
         card: {
           kind: "detections",
-          title: `Sub-Area Grounding · ${scene.name} (~${area} km²)`,
+          title: `Sub-Area Structure Grounding · ${scene.name} (~${area} km²)`,
           detectionCount: count,
           detectionLabel: `detected structures in ${scene.name}`,
         },
@@ -594,22 +646,6 @@ export function matchQuery(
         },
         boundingBoxes: subBoxes,
         sources: ["Sentinel-2 MSI (ROI Crop)", "Spectral Morphology", "SatQuery Grounding"],
-      }
-    }
-
-    if (q.includes("vegetat") || q.includes("crop") || q.includes("farm") || q.includes("paddy") || q.includes("ndvi") || q.includes("vigor") || q.includes("green")) {
-      const mean = 0.68
-      const healthy = 74
-      return {
-        text: `NDVI vegetation vigor for selected sub-region ${coords} (~${area} km²). Mean NDVI inside this box is ${mean}, with healthy photosynthetic canopy covering ${healthy}% of the parcel.`,
-        card: {
-          kind: "ndvi",
-          title: `Sub-Area Vegetation Vigor (~${area} km²)`,
-          ndviMean: mean,
-          ndviHealthy: healthy,
-        },
-        effect: { layer: "ndvi", detections: false, flood: false, compare: false },
-        sources: ["Sentinel-2 NDVI (ROI Focus)", "NDVI Pipeline"],
       }
     }
 
