@@ -20,6 +20,81 @@ import {
 import type { ViewerState, SelectedArea } from "./types"
 import type { SceneMeta, LayerId, DetectionBox } from "@/lib/satquery-data"
 
+// Global Leaflet crash prevention: ensure invalid NaN coordinates never throw fatal unhandled exceptions
+if (typeof window !== "undefined" && typeof L !== "undefined") {
+  const anyL = L as any
+  if (anyL.LatLng && !anyL.LatLng.__satqueryProtected) {
+    const OriginalLatLng = anyL.LatLng
+    function SafeLatLng(lat: any, lng: any, alt?: any) {
+      const safeLat = typeof lat === "number" && Number.isFinite(lat) ? lat : 19.8824
+      const safeLng = typeof lng === "number" && Number.isFinite(lng) ? lng : 74.4789
+      return new OriginalLatLng(safeLat, safeLng, alt)
+    }
+    SafeLatLng.prototype = OriginalLatLng.prototype
+    SafeLatLng.__satqueryProtected = true
+    anyL.LatLng = SafeLatLng
+
+    anyL.latLng = function (a: any, b: any, c: any) {
+      if (a instanceof anyL.LatLng) return a
+      if (Array.isArray(a)) {
+        const safeLat = typeof a[0] === "number" && Number.isFinite(a[0]) ? a[0] : 19.8824
+        const safeLng = typeof a[1] === "number" && Number.isFinite(a[1]) ? a[1] : 74.4789
+        return new anyL.LatLng(safeLat, safeLng, a[2])
+      }
+      if (a === undefined || a === null) return new anyL.LatLng(19.8824, 74.4789)
+      if (typeof a === "object" && "lat" in a) {
+        const safeLat = typeof a.lat === "number" && Number.isFinite(a.lat) ? a.lat : 19.8824
+        const lngVal = a.lng !== undefined ? a.lng : a.lon
+        const safeLng = typeof lngVal === "number" && Number.isFinite(lngVal) ? lngVal : 74.4789
+        return new anyL.LatLng(safeLat, safeLng, a.alt)
+      }
+      const safeLat = typeof a === "number" && Number.isFinite(a) ? a : 19.8824
+      const safeLng = typeof b === "number" && Number.isFinite(b) ? b : 74.4789
+      return new anyL.LatLng(safeLat, safeLng, c)
+    }
+  }
+
+  if (anyL.Map && anyL.Map.prototype && !anyL.Map.prototype.__satqueryProtected) {
+    const origFlyTo = anyL.Map.prototype.flyTo
+    anyL.Map.prototype.flyTo = function (target: any, zoom: any, options: any) {
+      try {
+        const size = this.getSize()
+        if (!size || size.x <= 20 || size.y <= 20) return this
+        return origFlyTo.call(this, target, zoom, options)
+      } catch (err) {
+        console.warn("Leaflet flyTo suppressed error:", err)
+        return this
+      }
+    }
+
+    const origFlyToBounds = anyL.Map.prototype.flyToBounds
+    anyL.Map.prototype.flyToBounds = function (bounds: any, options: any) {
+      try {
+        const size = this.getSize()
+        if (!size || size.x <= 20 || size.y <= 20) return this
+        return origFlyToBounds.call(this, bounds, options)
+      } catch (err) {
+        console.warn("Leaflet flyToBounds suppressed error:", err)
+        return this
+      }
+    }
+
+    const origFitBounds = anyL.Map.prototype.fitBounds
+    anyL.Map.prototype.fitBounds = function (bounds: any, options: any) {
+      try {
+        const size = this.getSize()
+        if (!size || size.x <= 20 || size.y <= 20) return this
+        return origFitBounds.call(this, bounds, options)
+      } catch (err) {
+        console.warn("Leaflet fitBounds suppressed error:", err)
+        return this
+      }
+    }
+
+    anyL.Map.prototype.__satqueryProtected = true
+  }
+}
+
 interface LeafletMapProps {
   state: ViewerState
   scene: SceneMeta

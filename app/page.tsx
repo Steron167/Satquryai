@@ -101,6 +101,16 @@ export default function Page() {
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false)
   const [mobileTab, setMobileTab] = useState<"map" | "chat" | "places" | "report">("map")
+  const [isDesktop, setIsDesktop] = useState(true)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const mq = window.matchMedia("(min-width: 1024px)")
+    setIsDesktop(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
+    mq.addEventListener("change", handler)
+    return () => mq.removeEventListener("change", handler)
+  }, [])
 
   // Automated Showcase / Live Judges Demonstration State
   const [isDemoRunning, setIsDemoRunning] = useState(false)
@@ -599,21 +609,23 @@ export default function Page() {
               </div>
             )}
 
-            <ImageViewer
-              state={viewer}
-              scene={activeScene}
-              userCustomImage={isCustomSceneActive ? customOptical : null}
-              onZoomChange={(zoom) => setViewer((prev) => ({ ...prev, zoom }))}
-              onPanChange={(pan) => setViewer((prev) => ({ ...prev, pan }))}
-              onSelectArea={(aoi) => setViewer((prev) => ({ ...prev, selectedAOI: aoi }))}
-              onAnalyzeArea={handleAnalyzeArea}
-              onLocationSelect={handleLocationSelect}
-              isLeftPanelOpen={isLeftPanelOpen}
-              onToggleLeftPanel={() => setIsLeftPanelOpen((prev) => !prev)}
-              onLayerChange={handleLayerChange}
-              onToggleFlood={() => setViewer((prev) => ({ ...prev, flood: !prev.flood }))}
-              onClearAllMarkings={handleClearAllMarkings}
-            />
+            {isDesktop && (
+              <ImageViewer
+                state={viewer}
+                scene={activeScene}
+                userCustomImage={isCustomSceneActive ? customOptical : null}
+                onZoomChange={(zoom) => setViewer((prev) => ({ ...prev, zoom }))}
+                onPanChange={(pan) => setViewer((prev) => ({ ...prev, pan }))}
+                onSelectArea={(aoi) => setViewer((prev) => ({ ...prev, selectedAOI: aoi }))}
+                onAnalyzeArea={handleAnalyzeArea}
+                onLocationSelect={handleLocationSelect}
+                isLeftPanelOpen={isLeftPanelOpen}
+                onToggleLeftPanel={() => setIsLeftPanelOpen((prev) => !prev)}
+                onLayerChange={handleLayerChange}
+                onToggleFlood={() => setViewer((prev) => ({ ...prev, flood: !prev.flood }))}
+                onClearAllMarkings={handleClearAllMarkings}
+              />
+            )}
           </div>
 
           {/* Desktop Side Chat Panel (Dynamic Width) */}
@@ -664,21 +676,23 @@ export default function Page() {
               mobileTab === "map" ? "flex flex-col z-10" : "invisible pointer-events-none absolute inset-0 -z-10"
             }`}
           >
-            <ImageViewer
-              state={viewer}
-              scene={activeScene}
-              userCustomImage={isCustomSceneActive ? customOptical : null}
-              onZoomChange={(zoom) => setViewer((prev) => ({ ...prev, zoom }))}
-              onPanChange={(pan) => setViewer((prev) => ({ ...prev, pan }))}
-              onSelectArea={(aoi) => setViewer((prev) => ({ ...prev, selectedAOI: aoi }))}
-              onAnalyzeArea={handleAnalyzeArea}
-              onLocationSelect={handleLocationSelect}
-              isLeftPanelOpen={false}
-              onToggleLeftPanel={() => setMobileTab("places")}
-              onLayerChange={handleLayerChange}
-              onToggleFlood={() => setViewer((prev) => ({ ...prev, flood: !prev.flood }))}
-              onClearAllMarkings={handleClearAllMarkings}
-            />
+            {!isDesktop && (
+              <ImageViewer
+                state={viewer}
+                scene={activeScene}
+                userCustomImage={isCustomSceneActive ? customOptical : null}
+                onZoomChange={(zoom) => setViewer((prev) => ({ ...prev, zoom }))}
+                onPanChange={(pan) => setViewer((prev) => ({ ...prev, pan }))}
+                onSelectArea={(aoi) => setViewer((prev) => ({ ...prev, selectedAOI: aoi }))}
+                onAnalyzeArea={handleAnalyzeArea}
+                onLocationSelect={handleLocationSelect}
+                isLeftPanelOpen={false}
+                onToggleLeftPanel={() => setMobileTab("places")}
+                onLayerChange={handleLayerChange}
+                onToggleFlood={() => setViewer((prev) => ({ ...prev, flood: !prev.flood }))}
+                onClearAllMarkings={handleClearAllMarkings}
+              />
+            )}
 
             {/* Floating Map Quick Controls for Mobile Farmers */}
             <div className="pointer-events-auto absolute top-2 left-2 right-2 z-20 flex items-center justify-between gap-1 overflow-x-auto no-scrollbar py-1">
