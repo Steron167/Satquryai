@@ -338,8 +338,8 @@ function enrichAnalysisWithQueryIntent(
       parsed.card = {
         kind: "landcover",
         title: esaWorldCover
-          ? `ESA WorldCover 10m · Surface Water (${locName})`
-          : `Land-Cover Composition · Surface Water (${locName})`,
+          ? `ESA WorldCover 10m · Surface Water · ${locName}`
+          : `Land-Cover Composition · Surface Water · ${locName}`,
         landcover: [
           { label: "Surface Water / River Channel", pct: waterPct },
           { label: "Riverbank Soil & Silt Margins", pct: soilPct },
@@ -445,8 +445,8 @@ function enrichAnalysisWithQueryIntent(
     parsed.card = {
       kind: "landcover",
       title: esaWorldCover
-        ? `ESA WorldCover 10m · Built-up Settlement (${locName})`
-        : `Land-Cover Composition · Built-up Settlement (${locName})`,
+        ? `ESA WorldCover 10m · Built-up Settlement · ${locName}`
+        : `Land-Cover Composition · Built-up Settlement · ${locName}`,
       landcover: [
         { label: "Built-up Roofs & Structures", pct: built },
         { label: "Paved Streets & Open Soil", pct: soil },
@@ -476,8 +476,8 @@ function enrichAnalysisWithQueryIntent(
     parsed.card = {
       kind: "landcover",
       title: esaWorldCover
-        ? `ESA WorldCover 10m · Agricultural Cropland (${locName})`
-        : `Land-Cover Composition · Agricultural Cropland (${locName})`,
+        ? `ESA WorldCover 10m · Agricultural Cropland · ${locName}`
+        : `Land-Cover Composition · Agricultural Cropland · ${locName}`,
       landcover: [
         { label: "Active Cropland / Green Canopy", pct: crop },
         { label: "Cultivated Soil / Field Margins", pct: soil },

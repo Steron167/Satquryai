@@ -117,12 +117,14 @@ export async function fetchGroundTruth(
       (osmClass === "natural" && (osmType === "water" || osmType === "wetland")) ||
       ["river", "canal", "stream", "pond", "reservoir", "lake", "drain", "water"].includes(osmType) ||
       isWaterwayName ||
-      (isGodavariRiverCorridor && (isBridge || osmClass === "highway"))
+      (isGodavariRiverCorridor && isBridge)
 
-    const resolvedPlaceName = isGodavariRiverCorridor
-      ? "Godavari River (Kopargaon Corridor)"
-      : isWaterwayName
-      ? displayName.split(",")[0].trim() || "River / Water Channel"
+    const resolvedPlaceName = isWaterBody
+      ? isGodavariRiverCorridor
+        ? "Godavari River (Kopargaon Corridor)"
+        : isWaterwayName
+        ? displayName.split(",")[0].trim() || "River / Water Channel"
+        : "River / Water Channel"
       : placeName
 
     // Check for explicit physical building structures or public amenities
