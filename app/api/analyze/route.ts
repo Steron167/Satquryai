@@ -189,6 +189,7 @@ async function fetchRealAOIImage(
 interface PixelMetrics {
   stdev: number
   isCropVegetation: boolean
+  isFallowSoil?: boolean
   isBuiltUp: boolean
   isWater: boolean
   greenDominance: number
@@ -460,16 +461,75 @@ function enrichAnalysisWithQueryIntent(
   // Crop / Agricultural Parcel Verification (Spectral Physics & Visual Canopy take highest priority)
   if (isCrop) {
     const locName = groundTruth?.placeName || sceneName || "Agricultural Field"
-    parsed.layer = "ndvi"
+    const isFallow =
+      Boolean(pixelMetrics?.isFallowSoil) ||
+      (pixelMetrics ? pixelMetrics.soilPct >= 45 && pixelMetrics.cropPct < 25 : false)
+
+    parsed.layer = isFallow ? "optical" : "ndvi"
     parsed.detections = true
+
+    if (isFallow) {
+      if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
+        parsed.boundingBoxes = [
+          { box_2d: [18, 20, 56, 64], label: "Fallow Field Parcel", confidence: 0.94 },
+          { box_2d: [48, 36, 84, 82], label: "Tilled Soil Plot Boundary", confidence: 0.91 },
+        ]
+      } else {
+        parsed.boundingBoxes = parsed.boundingBoxes.map((b) => {
+          const lbl = (b.label || "").toLowerCase()
+          if (lbl.includes("crop") || lbl.includes("canopy")) {
+            return { ...b, label: "Fallow Field Parcel" }
+          }
+          return b
+        })
+      }
+
+      const soil = pixelMetrics?.soilPct ?? 85
+      const crop = pixelMetrics?.cropPct ?? 10
+      const built = pixelMetrics?.builtPct ?? 5
+      const trees = esaWorldCover?.treePct ?? 0
+
+      parsed.card = {
+        kind: "landcover",
+        title: esaWorldCover
+          ? `ESA WorldCover 10m · Fallow Agricultural Land · ${locName}`
+          : `Land-Cover Composition · Fallow / Tilled Soil · ${locName}`,
+        landcover: [
+          { label: "Cultivated / Fallow Soil", pct: soil },
+          { label: "Sparse / Residual Greenery", pct: crop },
+          ...(trees > 0 ? [{ label: "Tree Cover / Agroforestry", pct: trees }] : []),
+          ...(built > 0 ? [{ label: "Farmsteads / Sheds", pct: built }] : []),
+        ],
+      }
+
+      const isHindi =
+        q.includes("khet") ||
+        q.includes("fasal") ||
+        q.includes("kisan") ||
+        q.includes("खेती") ||
+        q.includes("फसल") ||
+        q.includes("कैसी") ||
+        q.includes("हरियाली")
+      if (isHindi) {
+        parsed.answer = `उच्च-रिज़ॉल्यूशन ऑप्टिकल उपग्रह विश्लेषण के अनुसार यह चयनित क्षेत्र वर्तमान में **परती / जुता हुआ कृषि खेत (Fallow / Tilled Farmland · ${locName})** है। यहाँ लगभग **${soil}%** खुली जुती हुई मिट्टी दर्ज की गई है, जबकि सक्रिय हरी फसल केवल **${crop}%** है। यह खेत बुवाई अथवा अगले फसल चक्र की तैयारी में है।`
+      } else if (q.includes("crop") || q.includes("health") || q.includes("vigor") || q.includes("vegetat")) {
+        parsed.answer = `High-resolution optical satellite telemetry confirms this selected parcel is currently **Fallow / Tilled Agricultural Land (${locName})** with **${soil}%** bare/tilled soil and **${crop}%** sparse green vegetation. The field appears freshly harvested, tilled, or fallow between seasonal cropping cycles.`
+      }
+
+      return parsed
+    }
+
     if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
       parsed.boundingBoxes = [
         { box_2d: [18, 20, 56, 64], label: "Active Crop Canopy", confidence: 0.96 },
         { box_2d: [48, 36, 84, 82], label: "Cultivated Field Parcel", confidence: 0.92 },
       ]
     }
-    const crop = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 70
-    const soil = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 25
+    const crop =
+      pixelMetrics?.cropPct && pixelMetrics.cropPct >= 25
+        ? pixelMetrics.cropPct
+        : esaWorldCover?.cropPct ?? 70
+    const soil = pixelMetrics?.soilPct ?? esaWorldCover?.soilPct ?? 25
     const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 5
     const trees = esaWorldCover?.treePct ?? 0
 
@@ -940,26 +1000,53 @@ export async function POST(req: Request) {
               }
             }
 
-            let cropPct = Math.round((rawCrop / totalSampledPixels) * 100)
-            let waterPct = Math.round((rawWater / totalSampledPixels) * 100)
-            let builtPct = Math.round((rawBuilt / totalSampledPixels) * 100)
-            let soilPct = Math.max(0, 100 - (cropPct + waterPct + builtPct))
+            const opticalCropPct = Math.round((rawCrop / totalSampledPixels) * 100)
+            const opticalWaterPct = Math.round((rawWater / totalSampledPixels) * 100)
+            const opticalBuiltPct = Math.round((rawBuilt / totalSampledPixels) * 100)
+            const opticalSoilPct = Math.max(0, 100 - (opticalCropPct + opticalWaterPct + opticalBuiltPct))
 
-            const sumPct = cropPct + waterPct + builtPct + soilPct
-            if (sumPct !== 100) {
-              const diff = 100 - sumPct
-              if (waterPct >= cropPct && waterPct >= builtPct && waterPct >= soilPct) waterPct += diff
-              else if (cropPct >= builtPct && cropPct >= soilPct) cropPct += diff
-              else if (builtPct >= soilPct) builtPct += diff
-              else soilPct += diff
-            }
+            let cropPct = opticalCropPct
+            let waterPct = opticalWaterPct
+            let builtPct = opticalBuiltPct
+            let soilPct = opticalSoilPct
 
-            // Calibrate with ESA WorldCover 10m ground truth if available
+            // Calibrate with ESA WorldCover 10m ground truth
+            let isFallowSoil = false
+
             if (esaWorldCover) {
-              waterPct = esaWorldCover.waterPct
-              cropPct = esaWorldCover.cropPct
-              builtPct = esaWorldCover.builtPct
-              soilPct = esaWorldCover.soilPct
+              if (esaWorldCover.isWaterBody) {
+                waterPct = Math.max(opticalWaterPct, esaWorldCover.waterPct)
+                cropPct = Math.min(opticalCropPct, esaWorldCover.cropPct)
+                builtPct = esaWorldCover.builtPct
+                soilPct = Math.max(0, 100 - (waterPct + cropPct + builtPct))
+              } else if (esaWorldCover.isUrbanSettlement) {
+                builtPct = Math.max(opticalBuiltPct, esaWorldCover.builtPct)
+                cropPct = Math.min(opticalCropPct, esaWorldCover.cropPct)
+                waterPct = esaWorldCover.waterPct
+                soilPct = Math.max(0, 100 - (waterPct + cropPct + builtPct))
+              } else if (esaWorldCover.isAgricultural) {
+                // Ground truth confirms agricultural zoning.
+                // Check physical optical pixels: Is there standing green crop or bare/fallow soil?
+                if (opticalCropPct < 25 && opticalSoilPct >= 35) {
+                  // Real-time satellite photo shows unplanted / fallow / bare soil
+                  isFallowSoil = true
+                  cropPct = opticalCropPct
+                  soilPct = opticalSoilPct
+                  builtPct = opticalBuiltPct
+                  waterPct = opticalWaterPct
+                } else {
+                  // Active green standing crops
+                  isFallowSoil = false
+                  cropPct = Math.max(opticalCropPct, Math.round(opticalCropPct * 0.6 + esaWorldCover.cropPct * 0.4))
+                  soilPct = opticalSoilPct
+                  builtPct = opticalBuiltPct
+                  waterPct = opticalWaterPct
+                }
+              }
+            } else {
+              if (opticalCropPct < 25 && opticalSoilPct >= 45) {
+                isFallowSoil = true
+              }
             }
 
             // 1. Water Body / Channel / Flood Inundation
@@ -982,23 +1069,22 @@ export async function POST(req: Request) {
             const isGreenCrop =
               !isWater &&
               !isBuiltUp &&
-              (Boolean(esaWorldCover?.isAgricultural) ||
-                cropPct > 20 ||
-                (gMean > rMean * 1.16 && exG > 12))
+              !isFallowSoil &&
+              (cropPct >= 20 || (gMean > rMean * 1.16 && exG > 12))
 
             // 4. Cultivated / Plowing / Fallow Soil Farmland
             const isSoilFarmland =
               !isWater &&
               !isBuiltUp &&
-              !isGreenCrop &&
-              soilPct > 50
+              (isFallowSoil || soilPct > 45)
 
             const isCropVegetation =
-              !isWater && !isBuiltUp && (Boolean(esaWorldCover?.isAgricultural) || isGreenCrop || isSoilFarmland)
+              !isWater && !isBuiltUp && (isGreenCrop || isSoilFarmland || Boolean(esaWorldCover?.isAgricultural))
 
             pixelMetrics = {
               stdev: avgStdev,
               isCropVegetation,
+              isFallowSoil,
               isBuiltUp,
               isWater,
               greenDominance: Number((greenDiff * 100).toFixed(1)),
@@ -1115,6 +1201,8 @@ export async function POST(req: Request) {
           `- Surface Spectral Characteristics: ${
             pixelMetrics.isWater
               ? "Dominant Surface Water Body / River Channel / Inundated Basin (Strong Red/NIR Specular Absorption)"
+              : pixelMetrics.isFallowSoil
+              ? "Fallow / Tilled Farmland (Bare Soil / Plowing Furrows / Unplanted)"
               : pixelMetrics.isCropVegetation
               ? "Dominant Agricultural Cropland / Photosynthetic Canopy (Green Chlorophyll Reflectance)"
               : pixelMetrics.isBuiltUp
@@ -1125,7 +1213,10 @@ export async function POST(req: Request) {
           `  * Water Bodies / River Channel / Inundation: ${pixelMetrics.waterPct}%\n` +
           `  * Green Photosynthetic Canopy (Crops): ${pixelMetrics.cropPct}%\n` +
           `  * Built Structures / Concrete / Roofs: ${pixelMetrics.builtPct}%\n` +
-          `  * Cultivated Soil / Bare Ground / Margins: ${pixelMetrics.soilPct}%\n` +
+          `  * Cultivated / Fallow Soil / Bare Ground / Margins: ${pixelMetrics.soilPct}%\n` +
+          (pixelMetrics.isFallowSoil
+            ? `  * CRITICAL OBSERVATION: Direct high-resolution pixel measurement proves this parcel is currently FALLOW / BARE SOIL (${pixelMetrics.soilPct}% soil, only ${pixelMetrics.cropPct}% green canopy). Do NOT describe this as active green crop canopy! State that it is fallow, harvested, or tilled agricultural land awaiting sowing.\n`
+            : "") +
           `- Surface Texture Variation (Edge Density): stdev ${pixelMetrics.stdev.toFixed(1)}\n\n`
       }
       if (esaWorldCover) {

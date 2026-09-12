@@ -1003,24 +1003,57 @@ export function LeafletMap({
               labelLower.includes("river") ||
               labelLower.includes("canal") ||
               labelLower.includes("drainage"))
+          const isFallow =
+            labelLower.includes("fallow") ||
+            labelLower.includes("tilled") ||
+            labelLower.includes("soil") ||
+            labelLower.includes("परती") ||
+            labelLower.includes("bare")
           const isVeg =
-            labelLower.includes("crop") ||
-            labelLower.includes("vegetat") ||
-            labelLower.includes("canopy") ||
-            labelLower.includes("paddy") ||
-            labelLower.includes("forest") ||
-            labelLower.includes("farm")
+            !isFallow &&
+            (labelLower.includes("crop") ||
+              labelLower.includes("vegetat") ||
+              labelLower.includes("canopy") ||
+              labelLower.includes("paddy") ||
+              labelLower.includes("forest") ||
+              labelLower.includes("farm"))
 
-          const strokeColor = isFlood ? "#0284c7" : isWater ? "#06b6d4" : isVeg ? "#16a34a" : "#f59e0b"
-          const fillColor = isFlood ? "#38bdf8" : isWater ? "#22d3ee" : isVeg ? "#4ade80" : "#fbbf24"
+          const strokeColor = isFlood
+            ? "#0284c7"
+            : isWater
+            ? "#06b6d4"
+            : isFallow
+            ? "#d97706"
+            : isVeg
+            ? "#16a34a"
+            : "#f59e0b"
+          const fillColor = isFlood
+            ? "#38bdf8"
+            : isWater
+            ? "#22d3ee"
+            : isFallow
+            ? "#f59e0b"
+            : isVeg
+            ? "#4ade80"
+            : "#fbbf24"
           const borderClass = isFlood
             ? "border-sky-500 text-sky-200"
             : isWater
             ? "border-cyan-500 text-cyan-200"
+            : isFallow
+            ? "border-amber-500 text-amber-300"
             : isVeg
             ? "border-emerald-500 text-emerald-200"
             : "border-amber-500 text-amber-300"
-          const iconPrefix = isFlood ? "🌊 " : isWater ? "💧 " : isVeg ? "🌱 " : "🏢 "
+          const iconPrefix = isFlood
+            ? "🌊 "
+            : isWater
+            ? "💧 "
+            : isFallow
+            ? "🚜 "
+            : isVeg
+            ? "🌱 "
+            : "🏢 "
 
           const rect = L.rectangle(rectBounds, {
             color: strokeColor,
