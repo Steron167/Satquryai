@@ -683,8 +683,11 @@
   .max-w-\[95vw\] {
     max-width: 95vw;
   }
-  .max-w-\[calc\(100vw-2rem\)\] {
-    max-width: calc(100vw - 2rem);
+  .max-w-\[calc\(100\%-1\.5rem\)\] {
+    max-width: calc(100% - 1.5rem);
+  }
+  .max-w-\[calc\(100\%-430px\)\] {
+    max-width: calc(100% - 430px);
   }
   .max-w-lg {
     max-width: var(--container-lg);
@@ -2643,6 +2646,9 @@
     .md\:block {
       display: block;
     }
+    .md\:flex {
+      display: flex;
+    }
     .md\:inline {
       display: inline;
     }
@@ -2670,6 +2676,11 @@
     }
     .xl\:w-\[42rem\] {
       width: 42rem;
+    }
+  }
+  @media (width >= 96rem) {
+    .\32 xl\:inline {
+      display: inline;
     }
   }
   .dark\:border-input:is(.dark *) {

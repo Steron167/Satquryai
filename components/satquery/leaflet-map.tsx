@@ -1031,9 +1031,13 @@ export function LeafletMap({
           })
 
           const conf = Number.isFinite(box.conf) ? box.conf : 0.92
+          const pct = Math.round(conf * 100)
+          const rawLabel = (box.label || "Feature").trim()
+          // Strip any trailing percentage like "(96%)" or "( 96% )" from source label
+          const cleanLabel = rawLabel.replace(/\s*\(\s*\d+%\s*\)$/, "").trim()
           rect.bindTooltip(
             `<div class="font-mono text-[10px] font-bold ${borderClass} bg-slate-950/95 px-2 py-0.5 rounded border shadow-xl backdrop-blur-sm whitespace-nowrap">
-              ${iconPrefix}${box.label || "Feature"} <span class="opacity-80 font-normal">(${Math.round(conf * 100)}%)</span>
+              ${iconPrefix}${cleanLabel} <span class="opacity-80 font-normal">(${pct}%)</span>
             </div>`,
             { permanent: true, direction: "top", className: "satquery-tooltip" }
           )
@@ -1533,7 +1537,7 @@ export function LeafletMap({
             title="Clear all marked areas and features from map"
           >
             <X className="size-3.5 text-rose-300" />
-            <span>✕ Clear Marks / निशान हटाएं</span>
+            <span>Clear Marks / निशान हटाएं</span>
           </button>
         </div>
       )}
@@ -1712,7 +1716,7 @@ export function LeafletMap({
       )}
 
       {/* Layer Quick-Switch Pills (Bottom Right) */}
-      <div className="pointer-events-auto absolute bottom-3 right-3 z-[1000] flex max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-xl border border-border/80 bg-background/95 p-1 shadow-2xl backdrop-blur-md scrollbar-none">
+      <div className="pointer-events-auto absolute bottom-3 right-3 z-[1000] flex max-w-[calc(100%-1.5rem)] items-center gap-1 overflow-x-auto rounded-xl border border-border/80 bg-background/95 p-1 shadow-2xl backdrop-blur-md scrollbar-none">
         <button
           type="button"
           onClick={() => onLayerChange?.("optical")}
@@ -1794,13 +1798,16 @@ export function LeafletMap({
       </div>
 
       {/* Coordinate & Zoom HUD (Bottom Left) */}
-      <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] hidden sm:flex items-center gap-2 rounded-xl border border-border/80 bg-background/90 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-xl backdrop-blur-md">
-        <Crosshair className="size-3 text-primary" />
-        <span>
+      <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] hidden md:flex max-w-[calc(100%-430px)] items-center gap-2 rounded-xl border border-border/80 bg-background/90 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-xl backdrop-blur-md overflow-hidden whitespace-nowrap">
+        <Crosshair className="size-3 text-primary shrink-0" />
+        <span className="truncate">
           {cursorPos ? `${cursorPos.lat}° N, ${cursorPos.lon}° E` : `${scene.lat}, ${scene.lon}`}
         </span>
-        <span className="text-border font-light">|</span>
-        <span className="text-foreground font-semibold">Zoom {zoomLevel} (Sub-meter sharp)</span>
+        <span className="text-border font-light shrink-0">|</span>
+        <span className="text-foreground font-semibold shrink-0">
+          Zoom {zoomLevel}
+          <span className="hidden 2xl:inline text-muted-foreground font-normal"> (Sub-meter sharp)</span>
+        </span>
       </div>
     </div>
   )

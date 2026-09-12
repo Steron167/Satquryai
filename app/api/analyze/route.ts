@@ -433,8 +433,8 @@ function enrichAnalysisWithQueryIntent(
     parsed.detections = true
     if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
       parsed.boundingBoxes = [
-        { box_2d: [20, 22, 54, 58], label: "Built-up Residential Cluster (98%)", confidence: 0.98 },
-        { box_2d: [46, 46, 82, 84], label: "Settlement Structures & Corridors (95%)", confidence: 0.95 },
+        { box_2d: [20, 22, 54, 58], label: "Built-up Residential Cluster", confidence: 0.98 },
+        { box_2d: [46, 46, 82, 84], label: "Settlement Structures & Corridors", confidence: 0.95 },
       ]
     }
     const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 60
@@ -464,8 +464,8 @@ function enrichAnalysisWithQueryIntent(
     parsed.detections = true
     if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
       parsed.boundingBoxes = [
-        { box_2d: [18, 20, 56, 64], label: "Active Crop Canopy (96%)", confidence: 0.96 },
-        { box_2d: [48, 36, 84, 82], label: "Cultivated Field Parcel (92%)", confidence: 0.92 },
+        { box_2d: [18, 20, 56, 64], label: "Active Crop Canopy", confidence: 0.96 },
+        { box_2d: [48, 36, 84, 82], label: "Cultivated Field Parcel", confidence: 0.92 },
       ]
     }
     const crop = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 70
@@ -567,7 +567,7 @@ function enrichAnalysisWithQueryIntent(
     parsed.detections = true
     if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
       parsed.boundingBoxes = [
-        { box_2d: [24, 22, 50, 64], label: "Field Parcel · Optimal Moisture (34%)", confidence: 0.94 },
+        { box_2d: [24, 22, 50, 64], label: "Field Parcel · Optimal Soil Moisture", confidence: 0.94 },
         { box_2d: [56, 32, 78, 70], label: "Well-Hydrated Root Zone (VH/VV 0.28)", confidence: 0.91 },
       ]
     }

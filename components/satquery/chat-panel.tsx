@@ -402,7 +402,7 @@ export function ChatPanel({
               className="ml-2 flex items-center gap-1.5 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-200 border border-rose-500/50 px-2.5 py-1 text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 whitespace-nowrap"
             >
               <X className="size-3 text-rose-300" />
-              <span>✕ निशान हटाएं (Clear)</span>
+              <span>निशान हटाएं (Clear)</span>
             </button>
           )}
         </div>
