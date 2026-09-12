@@ -21,7 +21,11 @@ function getLandcoverColor(item: { label: string; colorVar?: string }): string {
     l.includes("silt") ||
     l.includes("bund") ||
     l.includes("margin") ||
-    l.includes("ground")
+    l.includes("ground") ||
+    l.includes("barren") ||
+    l.includes("waste") ||
+    l.includes("desert") ||
+    l.includes("rock")
   ) {
     return "var(--chart-2, #f59e0b)"
   }

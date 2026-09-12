@@ -1016,8 +1016,20 @@ export function LeafletMap({
             labelLower.includes("residential") ||
             labelLower.includes("road") ||
             labelLower.includes("farmstead")
+          const isBarren =
+            !isStructure &&
+            (labelLower.includes("barren") ||
+              labelLower.includes("waste") ||
+              labelLower.includes("desert") ||
+              labelLower.includes("rock") ||
+              labelLower.includes("stony") ||
+              labelLower.includes("बंजर") ||
+              labelLower.includes("ऊसर") ||
+              labelLower.includes("silt flat") ||
+              labelLower.includes("sand"))
           const isFallow =
             !isStructure &&
+            !isBarren &&
             (labelLower.includes("fallow") ||
               labelLower.includes("tilled") ||
               labelLower.includes("soil") ||
@@ -1030,6 +1042,7 @@ export function LeafletMap({
           const isVeg =
             !isStructure &&
             !isFallow &&
+            !isBarren &&
             (labelLower.includes("crop") ||
               labelLower.includes("vegetat") ||
               labelLower.includes("canopy") ||
@@ -1049,6 +1062,8 @@ export function LeafletMap({
             ? "#06b6d4"
             : isStructure
             ? "#f97316"
+            : isBarren
+            ? "#eab308"
             : isFallow
             ? "#d97706"
             : isVeg
@@ -1060,6 +1075,8 @@ export function LeafletMap({
             ? "#22d3ee"
             : isStructure
             ? "#fb923c"
+            : isBarren
+            ? "#fef08a"
             : isFallow
             ? "#f59e0b"
             : isVeg
@@ -1071,6 +1088,8 @@ export function LeafletMap({
             ? "border-cyan-500 text-cyan-200"
             : isStructure
             ? "border-orange-500 text-orange-200"
+            : isBarren
+            ? "border-yellow-500 text-yellow-300"
             : isFallow
             ? "border-amber-500 text-amber-300"
             : isVeg
@@ -1082,6 +1101,8 @@ export function LeafletMap({
             ? "💧 "
             : isStructure
             ? "🏠 "
+            : isBarren
+            ? "🏜️ "
             : isFallow
             ? "🚜 "
             : isVeg

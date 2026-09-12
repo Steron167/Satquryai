@@ -310,7 +310,11 @@ export function normalizeLandcover(
         l.includes("silt") ||
         l.includes("bund") ||
         l.includes("margin") ||
-        l.includes("ground")
+        l.includes("ground") ||
+        l.includes("barren") ||
+        l.includes("waste") ||
+        l.includes("desert") ||
+        l.includes("rock")
       ) {
         colorVar = "var(--chart-2, #f59e0b)"
       } else if (l.includes("tree") || l.includes("forest") || l.includes("agroforestry")) {

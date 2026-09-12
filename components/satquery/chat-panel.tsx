@@ -155,6 +155,7 @@ export function ChatPanel({
           "🌾 खेत में फसल की सेहत कैसी है?",
           "💧 क्या खेत में कहीं पानी भरा है?",
           "🌱 Fasal ka greenness index (NDVI)",
+          "🏜️ क्या यह जमीन बंजर है? (Barren Land)",
           "📋 पीएम फसल बीमा क्लेम रिपोर्ट तैयार करें",
           "🇮🇳 उपग्रह से जमीन का वर्गीकरण (LULC)",
           ...SAMPLE_QUERIES.map((q) => q.label),
