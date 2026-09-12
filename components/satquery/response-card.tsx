@@ -1,4 +1,4 @@
-import { ArrowUpRight, ArrowDownRight, ScanEye } from "lucide-react"
+import { ArrowUpRight, ArrowDownRight, ScanEye, Droplets, Sprout, Gauge } from "lucide-react"
 import type { ResponseCard as ResponseCardType } from "@/lib/satquery-data"
 
 export function ResponseCard({ card }: { card: ResponseCardType }) {
@@ -87,6 +87,56 @@ export function ResponseCard({ card }: { card: ResponseCardType }) {
             <p className="font-mono text-3xl font-semibold text-primary">{card.floodArea}</p>
             <p className="text-xs text-muted-foreground">estimated inundation extent</p>
           </div>
+        </div>
+      )}
+
+      {card.kind === "moisture" && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex size-11 items-center justify-center rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400">
+                <Droplets className="size-5" />
+              </div>
+              <div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-mono text-2xl font-bold text-cyan-400">
+                    {card.soilMoisturePct ?? 34}%
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground">volumetric (m³/m³)</span>
+                </div>
+                <p className="text-[11px] font-medium text-foreground/90">
+                  {card.rootZoneStress || "Optimal Field Capacity"}
+                </p>
+              </div>
+            </div>
+            {card.polarimetricRatio && (
+              <span className="rounded-md border border-cyan-500/30 bg-cyan-950/40 px-2 py-1 font-mono text-[10px] text-cyan-300 font-semibold">
+                {card.polarimetricRatio}
+              </span>
+            )}
+          </div>
+
+          {/* Moisture Progress Gauge */}
+          <div className="space-y-1">
+            <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
+              <span>Arid Wilting Point (10%)</span>
+              <span>Field Capacity (35%)</span>
+              <span>Saturation (50%)</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary border border-border/40">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-amber-400 via-cyan-400 to-blue-500 transition-all duration-500"
+                style={{ width: `${Math.min(100, Math.max(5, ((card.soilMoisturePct ?? 34) / 50) * 100))}%` }}
+              />
+            </div>
+          </div>
+
+          {card.irrigationAdvice && (
+            <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-300">
+              <Sprout className="size-4 shrink-0 text-emerald-400 mt-0.5" />
+              <p className="leading-snug text-[11px]">{card.irrigationAdvice}</p>
+            </div>
+          )}
         </div>
       )}
     </div>

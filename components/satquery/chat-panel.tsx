@@ -15,10 +15,12 @@ import {
   MicOff,
   Volume2,
   VolumeX,
+  Share2,
 } from "lucide-react"
 import { SAMPLE_QUERIES, SCENES } from "@/lib/satquery-data"
 import { ResponseCard } from "./response-card"
 import { VoiceService } from "@/lib/voice-service"
+import { WhatsappAdvisoryModal } from "./whatsapp-advisory-modal"
 import type { ChatMessage, SelectedArea } from "./types"
 
 interface ChatPanelProps {
@@ -49,6 +51,7 @@ export function ChatPanel({
   const [speechLang, setSpeechLang] = useState<"hi-IN" | "en-IN">("hi-IN")
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [activeSpeakingId, setActiveSpeakingId] = useState<string | null>(null)
+  const [selectedAdvisoryMessage, setSelectedAdvisoryMessage] = useState<ChatMessage | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stopListeningRef = useRef<(() => void) | null>(null)
 
@@ -241,28 +244,40 @@ export function ChatPanel({
                 {/* Speaker Audio Listen Button & Grounding Badges for Assistant */}
                 {m.role === "assistant" && (
                   <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/40">
-                    <button
-                      type="button"
-                      onClick={() => handleSpeakMessage(m.id || "msg", m.text)}
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer ${
-                        activeSpeakingId === (m.id || "msg")
-                          ? "bg-amber-500 text-slate-950 font-bold animate-pulse shadow-sm"
-                          : "bg-secondary/90 text-foreground hover:bg-primary/15 hover:text-primary border border-border"
-                      }`}
-                      title={activeSpeakingId === (m.id || "msg") ? "Stop Audio" : "Listen (बोलकर सुनें)"}
-                    >
-                      {activeSpeakingId === (m.id || "msg") ? (
-                        <>
-                          <VolumeX className="size-3.5" />
-                          <span>बोलना रोकें (Stop)</span>
-                        </>
-                      ) : (
-                        <>
-                          <Volume2 className="size-3.5 text-primary" />
-                          <span>🔊 सुनें (Listen)</span>
-                        </>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSpeakMessage(m.id || "msg", m.text)}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer ${
+                          activeSpeakingId === (m.id || "msg")
+                            ? "bg-amber-500 text-slate-950 font-bold animate-pulse shadow-sm"
+                            : "bg-secondary/90 text-foreground hover:bg-primary/15 hover:text-primary border border-border"
+                        }`}
+                        title={activeSpeakingId === (m.id || "msg") ? "Stop Audio" : "Listen (बोलकर सुनें)"}
+                      >
+                        {activeSpeakingId === (m.id || "msg") ? (
+                          <>
+                            <VolumeX className="size-3.5" />
+                            <span>बोलना रोकें (Stop)</span>
+                          </>
+                        ) : (
+                          <>
+                            <Volume2 className="size-3.5 text-primary" />
+                            <span>🔊 सुनें (Listen)</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAdvisoryMessage(m)}
+                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all cursor-pointer active:scale-95 shadow-sm"
+                        title="Send Official Rural WhatsApp Advisory & Voice Note to Farmer"
+                      >
+                        <Share2 className="size-3 text-emerald-400" />
+                        <span>📲 WhatsApp सलाह</span>
+                      </button>
+                    </div>
 
                     <div className="flex flex-wrap items-center gap-1 font-mono text-[9px]">
                       {m.boundingBoxes && m.boundingBoxes.length > 0 && (
@@ -476,6 +491,13 @@ export function ChatPanel({
           </button>
         </div>
       </div>
+
+      <WhatsappAdvisoryModal
+        isOpen={Boolean(selectedAdvisoryMessage)}
+        onClose={() => setSelectedAdvisoryMessage(null)}
+        scene={SCENES[activeSceneId] || SCENES["godavari"]}
+        message={selectedAdvisoryMessage}
+      />
     </section>
   )
 }

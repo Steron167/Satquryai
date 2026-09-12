@@ -208,7 +208,7 @@ export const FLOOD_POLYS: { x: number; y: number; w: number; h: number }[] = [
   { x: 14, y: 74, w: 22, h: 16 },
 ]
 
-export type CardKind = "landcover" | "detections" | "ndvi" | "change" | "flood"
+export type CardKind = "landcover" | "detections" | "ndvi" | "change" | "flood" | "moisture"
 
 export interface LandCoverItem {
   label: string
@@ -232,6 +232,10 @@ export interface ResponseCard {
   ndviHealthy?: number
   changes?: ChangeItem[]
   floodArea?: string
+  soilMoisturePct?: number
+  rootZoneStress?: string
+  irrigationAdvice?: string
+  polarimetricRatio?: string
 }
 
 export interface ViewerEffect {
@@ -294,6 +298,24 @@ export const SAMPLE_QUERIES: SampleQuery[] = [
       },
       effect: { layer: "sar", detections: false, flood: true, compare: false },
       sources: ["Sentinel-1 GRD CSAR", "Otsu Backscatter Thresholding", "ISRO-Bhuvan Calibration"],
+    },
+  },
+  {
+    id: "moisture",
+    label: "Evaluate Soil Moisture & Root-Zone Stress (मृदा नमी एवं सिंचाई)",
+    keywords: ["moisture", "soil", "root-zone", "irrigation", "नमी", "सिंचाई", "polarimetric", "stress"],
+    response: {
+      text: "Sentinel-1 dual-polarization SAR analysis (VH/VV cross-ratio: 0.28, -14.2 dB) indicates volumetric soil moisture at 34% (m³/m³). Root-zone moisture levels remain in the optimal field capacity band (28–36%). High dielectric permittivity confirms healthy soil water retention without acute drought stress.",
+      card: {
+        kind: "moisture",
+        title: "Sentinel-1 SAR Soil Moisture Index",
+        soilMoisturePct: 34,
+        rootZoneStress: "Optimal Field Capacity (28-36% m³/m³)",
+        irrigationAdvice: "No irrigation required for 72 hrs; adequate root-zone water retention.",
+        polarimetricRatio: "VH/VV Cross-Ratio: 0.28 (-14.2 dB)",
+      },
+      effect: { layer: "sar", detections: false, flood: false, compare: false },
+      sources: ["Sentinel-1 SAR Dual-Pol (VH/VV)", "Dielectric Mixing Model", "Bhuvan Agri-Radar"],
     },
   },
   {
@@ -380,6 +402,14 @@ export interface ApiAnalysis {
     | { kind: "ndvi"; title: string; ndviMean: number; ndviHealthy: number }
     | { kind: "change"; title: string; changes: ChangeItem[] }
     | { kind: "flood"; title: string; floodArea: string }
+    | {
+        kind: "moisture"
+        title: string
+        soilMoisturePct: number
+        rootZoneStress?: string
+        irrigationAdvice?: string
+        polarimetricRatio?: string
+      }
     | { kind: "none" }
 }
 
@@ -418,6 +448,16 @@ export function apiToResponse(a: ApiAnalysis, dynamicSources?: string[]): Canned
       break
     case "flood":
       card = { kind: "flood", title: a.card.title || "SAR Flood Extent", floodArea: a.card.floodArea }
+      break
+    case "moisture":
+      card = {
+        kind: "moisture",
+        title: a.card.title || "Sentinel-1 SAR Soil Moisture Index",
+        soilMoisturePct: Math.round(a.card.soilMoisturePct),
+        rootZoneStress: a.card.rootZoneStress || "Optimal Field Capacity",
+        irrigationAdvice: a.card.irrigationAdvice || "Schedule normal cycle",
+        polarimetricRatio: a.card.polarimetricRatio || "VH/VV Ratio: 0.28",
+      }
       break
     default:
       card = undefined
@@ -792,6 +832,26 @@ export function matchQuery(
     }
   }
 
+
+  // Intent: Soil Moisture & Root-Zone Stress
+  if (q.includes("moist") || q.includes("soil") || q.includes("irrigat") || q.includes("drought") || q.includes("नमी") || q.includes("सिंचाई") || q.includes("मिट्टी")) {
+    const moisture = sceneId === "bhadla" ? 11 : sceneId === "sundarbans" ? 48 : 34
+    const stress = sceneId === "bhadla" ? "Severe Water Deficit (Arid Shrubland)" : sceneId === "sundarbans" ? "Near Saturation / Deltaic Hydrology" : "Optimal Field Capacity (28-36% m³/m³)"
+    const advice = sceneId === "bhadla" ? "Urgent drip irrigation advised to prevent crop wilting." : sceneId === "sundarbans" ? "Adequate root hydration; monitor salinity levels." : "No irrigation required for 72 hrs; adequate root hydration."
+    return {
+      text: `Sentinel-1 SAR polarimetric cross-ratio (VH/VV) soil moisture estimation for ${scene.name}. Volumetric moisture is measured at ${moisture}% (m³/m³). Root-zone health is classified as: ${stress}. ${advice}`,
+      card: {
+        kind: "moisture",
+        title: `Soil Moisture & Root-Zone · ${scene.name}`,
+        soilMoisturePct: moisture,
+        rootZoneStress: stress,
+        irrigationAdvice: advice,
+        polarimetricRatio: `VH/VV: ${(moisture * 0.007 + 0.06).toFixed(2)} (-${(22 - moisture * 0.18).toFixed(1)} dB)`,
+      },
+      effect: { layer: "sar", detections: false, flood: false, compare: false },
+      sources: ["Sentinel-1 SAR VH/VV", "Soil Dielectric Permittivity Model", "Bhuvan Agri-Radar"],
+    }
+  }
 
   // Intent: Vegetation / Agriculture / Forest / NDVI
   if (q.includes("vegetat") || q.includes("crop") || q.includes("farm") || q.includes("paddy") || q.includes("forest") || q.includes("green") || q.includes("ndvi") || q.includes("vigor")) {
