@@ -1007,7 +1007,11 @@ export function LeafletMap({
             labelLower.includes("fallow") ||
             labelLower.includes("tilled") ||
             labelLower.includes("soil") ||
+            labelLower.includes("cultivat") ||
+            labelLower.includes("plow") ||
+            labelLower.includes("furrow") ||
             labelLower.includes("परती") ||
+            labelLower.includes("जुता") ||
             labelLower.includes("bare")
           const isVeg =
             !isFallow &&
@@ -1016,7 +1020,9 @@ export function LeafletMap({
               labelLower.includes("canopy") ||
               labelLower.includes("paddy") ||
               labelLower.includes("forest") ||
-              labelLower.includes("farm"))
+              labelLower.includes("farm") ||
+              labelLower.includes("field") ||
+              labelLower.includes("parcel"))
 
           const strokeColor = isFlood
             ? "#0284c7"

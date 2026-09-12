@@ -216,6 +216,134 @@ export interface LandCoverItem {
   colorVar: string
 }
 
+/**
+ * Normalizes an array of land-cover breakdown items so that:
+ * 1. Their percentages strictly sum to exactly 100%.
+ * 2. In agricultural context, unallocated remainder is placed into cultivated/fallow soil.
+ * 3. Every entry has a valid, high-contrast CSS color variable.
+ */
+export function normalizeLandcover(
+  items: { label: string; pct: number; colorVar?: string }[],
+  options?: { fallbackSoilLabel?: string; preferSoilForRemainder?: boolean }
+): LandCoverItem[] {
+  // Filter out any negative percentages
+  const valid = items
+    .map((item) => ({ ...item, pct: Math.max(0, Math.round(item.pct)) }))
+    .filter((item) => item.pct > 0)
+
+  // If empty, return default 100%
+  if (valid.length === 0) {
+    return [
+      {
+        label: options?.fallbackSoilLabel || "Cultivated Soil / Field Margins",
+        pct: 100,
+        colorVar: "var(--chart-2, #f59e0b)",
+      },
+    ]
+  }
+
+  // Determine sum
+  const sum = valid.reduce((acc, cur) => acc + cur.pct, 0)
+  const diff = 100 - sum
+
+  if (diff !== 0) {
+    if (options?.preferSoilForRemainder) {
+      // Find soil or fallow category
+      const soilIdx = valid.findIndex((i) => {
+        const l = i.label.toLowerCase()
+        return (
+          l.includes("soil") ||
+          l.includes("fallow") ||
+          l.includes("bare") ||
+          l.includes("ground") ||
+          l.includes("margin") ||
+          l.includes("silt")
+        )
+      })
+      if (soilIdx >= 0) {
+        valid[soilIdx].pct = Math.max(1, valid[soilIdx].pct + diff)
+      } else if (diff > 0) {
+        valid.push({
+          label: options.fallbackSoilLabel || "Cultivated Soil / Field Margins",
+          pct: diff,
+          colorVar: "var(--chart-2, #f59e0b)",
+        })
+      } else {
+        let largestIdx = 0
+        for (let i = 1; i < valid.length; i++) {
+          if (valid[i].pct > valid[largestIdx].pct) largestIdx = i
+        }
+        valid[largestIdx].pct = Math.max(1, valid[largestIdx].pct + diff)
+      }
+    } else {
+      let largestIdx = 0
+      for (let i = 1; i < valid.length; i++) {
+        if (valid[i].pct > valid[largestIdx].pct) largestIdx = i
+      }
+      valid[largestIdx].pct = Math.max(1, valid[largestIdx].pct + diff)
+    }
+  }
+
+  // Guarantee exact 100 sum
+  const finalSum = valid.reduce((acc, cur) => acc + cur.pct, 0)
+  if (finalSum !== 100 && valid.length > 0) {
+    valid[0].pct += 100 - finalSum
+  }
+
+  return valid.map((item) => {
+    let colorVar = item.colorVar
+    if (!colorVar) {
+      const l = item.label.toLowerCase()
+      if (
+        l.includes("crop") ||
+        l.includes("vegetat") ||
+        l.includes("canopy") ||
+        l.includes("green") ||
+        l.includes("fasal") ||
+        l.includes("paddy")
+      ) {
+        colorVar = "var(--chart-3, #22c55e)"
+      } else if (
+        l.includes("soil") ||
+        l.includes("fallow") ||
+        l.includes("bare") ||
+        l.includes("silt") ||
+        l.includes("bund") ||
+        l.includes("margin") ||
+        l.includes("ground")
+      ) {
+        colorVar = "var(--chart-2, #f59e0b)"
+      } else if (l.includes("tree") || l.includes("forest") || l.includes("agroforestry")) {
+        colorVar = "var(--chart-5, #10b981)"
+      } else if (
+        l.includes("water") ||
+        l.includes("river") ||
+        l.includes("drainage") ||
+        l.includes("channel") ||
+        l.includes("lake")
+      ) {
+        colorVar = "var(--chart-1, #06b6d4)"
+      } else if (
+        l.includes("built") ||
+        l.includes("struct") ||
+        l.includes("roof") ||
+        l.includes("road") ||
+        l.includes("farmstead") ||
+        l.includes("shed")
+      ) {
+        colorVar = "var(--chart-4, #f97316)"
+      } else {
+        colorVar = "var(--primary, #3b82f6)"
+      }
+    }
+    return {
+      label: item.label,
+      pct: item.pct,
+      colorVar,
+    }
+  })
+}
+
 export interface ChangeItem {
   label: string
   value: string

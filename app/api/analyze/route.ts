@@ -6,6 +6,7 @@ import {
   matchQuery,
   isConversationalGreeting,
   type ApiAnalysis,
+  normalizeLandcover,
 } from "@/lib/satquery-data"
 import { fetchGroundTruth, type GroundTruthResult } from "@/lib/ground-truth-service"
 import { fetchESAWorldCover, type ESAWorldCoverResult } from "@/lib/esa-worldcover-service"
@@ -341,12 +342,12 @@ function enrichAnalysisWithQueryIntent(
         title: esaWorldCover
           ? `ESA WorldCover 10m · Surface Water · ${locName}`
           : `Land-Cover Composition · Surface Water · ${locName}`,
-        landcover: [
+        landcover: normalizeLandcover([
           { label: "Surface Water / River Channel", pct: waterPct },
           { label: "Riverbank Soil & Silt Margins", pct: soilPct },
           ...(cropPct > 0 ? [{ label: "Riparian Vegetation & Fringe", pct: cropPct }] : []),
           ...(builtPct > 0 ? [{ label: "Structures / Bridges", pct: builtPct }] : []),
-        ],
+        ]),
       }
     }
 
@@ -448,12 +449,12 @@ function enrichAnalysisWithQueryIntent(
       title: esaWorldCover
         ? `ESA WorldCover 10m · Built-up Settlement · ${locName}`
         : `Land-Cover Composition · Built-up Settlement · ${locName}`,
-      landcover: [
+      landcover: normalizeLandcover([
         { label: "Built-up Roofs & Structures", pct: built },
         { label: "Paved Streets & Open Soil", pct: soil },
         ...(trees > 0 ? [{ label: "Urban Trees & Canopy", pct: trees }] : []),
         ...(crop > 0 ? [{ label: "Open Green Space & Parks", pct: crop }] : []),
-      ],
+      ]),
     }
     return parsed
   }
@@ -484,9 +485,14 @@ function enrichAnalysisWithQueryIntent(
         })
       }
 
-      const soil = pixelMetrics?.soilPct ?? 85
-      const crop = pixelMetrics?.cropPct ?? 10
-      const built = pixelMetrics?.builtPct ?? 5
+      const soil =
+        pixelMetrics?.soilPct && pixelMetrics.soilPct >= 35
+          ? pixelMetrics.soilPct
+          : esaWorldCover?.soilPct && esaWorldCover.soilPct > 0
+          ? esaWorldCover.soilPct
+          : 75
+      const crop = pixelMetrics?.cropPct ?? esaWorldCover?.cropPct ?? 15
+      const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 0
       const trees = esaWorldCover?.treePct ?? 0
 
       parsed.card = {
@@ -494,12 +500,15 @@ function enrichAnalysisWithQueryIntent(
         title: esaWorldCover
           ? `ESA WorldCover 10m · Fallow Agricultural Land · ${locName}`
           : `Land-Cover Composition · Fallow / Tilled Soil · ${locName}`,
-        landcover: [
-          { label: "Cultivated / Fallow Soil", pct: soil },
-          { label: "Sparse / Residual Greenery", pct: crop },
-          ...(trees > 0 ? [{ label: "Tree Cover / Agroforestry", pct: trees }] : []),
-          ...(built > 0 ? [{ label: "Farmsteads / Sheds", pct: built }] : []),
-        ],
+        landcover: normalizeLandcover(
+          [
+            { label: "Cultivated / Fallow Soil", pct: soil },
+            { label: "Sparse / Residual Greenery", pct: crop },
+            ...(trees > 0 ? [{ label: "Tree Cover / Agroforestry", pct: trees }] : []),
+            ...(built > 0 ? [{ label: "Farmsteads / Sheds", pct: built }] : []),
+          ],
+          { preferSoilForRemainder: true, fallbackSoilLabel: "Cultivated / Fallow Soil" }
+        ),
       }
 
       const isHindi =
@@ -526,24 +535,32 @@ function enrichAnalysisWithQueryIntent(
       ]
     }
     const crop =
-      pixelMetrics?.cropPct && pixelMetrics.cropPct >= 25
+      pixelMetrics?.cropPct && pixelMetrics.cropPct >= 20
         ? pixelMetrics.cropPct
-        : esaWorldCover?.cropPct ?? 70
-    const soil = pixelMetrics?.soilPct ?? esaWorldCover?.soilPct ?? 25
-    const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 5
+        : esaWorldCover?.cropPct ?? 55
     const trees = esaWorldCover?.treePct ?? 0
+    const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 0
+    const soil =
+      pixelMetrics?.soilPct && pixelMetrics.soilPct > 0
+        ? pixelMetrics.soilPct
+        : esaWorldCover?.soilPct && esaWorldCover.soilPct > 0
+        ? esaWorldCover.soilPct
+        : Math.max(15, 100 - crop - trees - built)
 
     parsed.card = {
       kind: "landcover",
       title: esaWorldCover
         ? `ESA WorldCover 10m · Agricultural Cropland · ${locName}`
         : `Land-Cover Composition · Agricultural Cropland · ${locName}`,
-      landcover: [
-        { label: "Active Cropland / Green Canopy", pct: crop },
-        { label: "Cultivated Soil / Field Margins", pct: soil },
-        ...(trees > 0 ? [{ label: "Tree Cover / Agroforestry", pct: trees }] : []),
-        ...(built > 0 ? [{ label: "Built / Farmsteads", pct: built }] : []),
-      ],
+      landcover: normalizeLandcover(
+        [
+          { label: "Active Cropland / Green Canopy", pct: crop },
+          { label: "Cultivated Soil / Field Margins", pct: soil },
+          ...(trees > 0 ? [{ label: "Tree Cover / Agroforestry", pct: trees }] : []),
+          ...(built > 0 ? [{ label: "Built / Farmsteads", pct: built }] : []),
+        ],
+        { preferSoilForRemainder: true, fallbackSoilLabel: "Cultivated Soil / Field Margins" }
+      ),
     }
     return parsed
   }
@@ -691,12 +708,12 @@ function enrichAnalysisWithQueryIntent(
           title: esaWorldCover
             ? `ESA WorldCover 10m · Surface Water (~${selectedAOI.areaKm2} km²)`
             : `Land-Cover Composition · Water Body (~${selectedAOI.areaKm2} km²)`,
-          landcover: [
+          landcover: normalizeLandcover([
             { label: "Surface Water / River Channel", pct: water },
             { label: "Riverbank Margins & Soil", pct: soil },
             ...(crop > 0 ? [{ label: "Riparian Vegetation & Fringe", pct: crop }] : []),
             ...(built > 0 ? [{ label: "Structures / Bridges", pct: built }] : []),
-          ],
+          ]),
         }
       } else if (isSettlement) {
         const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 65
@@ -708,29 +725,32 @@ function enrichAnalysisWithQueryIntent(
           title: esaWorldCover
             ? `ESA WorldCover 10m · Built-up Settlement (~${selectedAOI.areaKm2} km²)`
             : `Land-Cover Composition · Built-up Settlement (~${selectedAOI.areaKm2} km²)`,
-          landcover: [
+          landcover: normalizeLandcover([
             { label: "Built-up Roofs & Structures", pct: built },
             { label: "Paved Streets & Open Soil", pct: soil },
             ...(trees > 0 ? [{ label: "Urban Trees & Canopy", pct: trees }] : []),
             ...(crop > 0 ? [{ label: "Open Green Space & Parks", pct: crop }] : []),
-          ],
+          ]),
         }
       } else if (esaWorldCover?.isAgricultural || pixelMetrics?.isCropVegetation || groundTruth?.isAgricultural) {
-        const crop = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 72
-        const soil = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 23
-        const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 5
+        const crop = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 55
+        const soil = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 35
+        const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 0
         const trees = esaWorldCover?.treePct ?? 0
         parsed.card = {
           kind: "landcover",
           title: esaWorldCover
             ? `ESA WorldCover 10m · Agricultural Parcel (~${selectedAOI.areaKm2} km²)`
             : `Land-Cover Composition · Field Parcel (~${selectedAOI.areaKm2} km²)`,
-          landcover: [
-            { label: "Cropland / Vegetation", pct: crop },
-            { label: "Cultivated Soil / Fallow", pct: soil },
-            ...(trees > 0 ? [{ label: "Tree Cover / Canopy", pct: trees }] : []),
-            ...(built > 0 ? [{ label: "Built / Farmsteads", pct: built }] : []),
-          ],
+          landcover: normalizeLandcover(
+            [
+              { label: "Cropland / Vegetation", pct: crop },
+              { label: "Cultivated Soil / Fallow", pct: soil },
+              ...(trees > 0 ? [{ label: "Tree Cover / Canopy", pct: trees }] : []),
+              ...(built > 0 ? [{ label: "Built / Farmsteads", pct: built }] : []),
+            ],
+            { preferSoilForRemainder: true, fallbackSoilLabel: "Cultivated Soil / Fallow" }
+          ),
         }
       } else {
         const soil = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 50
@@ -742,12 +762,12 @@ function enrichAnalysisWithQueryIntent(
           title: esaWorldCover
             ? `ESA WorldCover 10m · Land Cover (~${selectedAOI.areaKm2} km²)`
             : `Land-Cover Composition · Selected Area (~${selectedAOI.areaKm2} km²)`,
-          landcover: [
+          landcover: normalizeLandcover([
             ...(water > 0 ? [{ label: "Water Surface", pct: water }] : []),
             { label: "Open Ground / Soil", pct: soil },
             { label: "Vegetative Cover", pct: crop },
             { label: "Structures / Infrastructure", pct: built },
-          ],
+          ]),
         }
       }
     }
@@ -980,14 +1000,19 @@ export async function POST(req: Request) {
                 ((g >= 70 && r >= 42 && g > r * 1.16 && g > b * 1.12 && pixelExG >= 14) ||
                  (g >= 60 && r >= 40 && g > r * 1.22 && pixelExG >= 18))
 
-              // 3. Built-up Settlement: High-contrast roofs, concrete, asphalt
+              // 3. Built-up Settlement vs Agricultural Soil
+              const isAgriContext = Boolean(groundTruth?.isAgricultural || esaWorldCover?.isAgricultural)
+              const isUrbanContext = Boolean(groundTruth?.isUrbanSettlement || esaWorldCover?.isUrbanSettlement)
+
               const isBuiltPixel =
                 !isWaterPixel &&
                 !isCropPixel &&
-                (Boolean(groundTruth?.isUrbanSettlement) ||
-                 brightness > 160 ||
-                 (brightness > 120 && g <= r * 1.10 && pixelExG < 20) ||
-                 (brightness > 100 && Math.abs(r - g) < 18 && Math.abs(g - b) < 26))
+                (isUrbanContext
+                  ? (brightness > 115 && Math.abs(r - g) < 22 && Math.abs(g - b) < 28) || brightness > 165
+                  : brightness > 210 || // high-albedo metallic / concrete roof
+                    (b > 140 && b > r * 1.25 && b > g * 1.15) || // blue / tin shed
+                    (r > 175 && r > g * 1.35 && r > b * 1.40) || // red terracotta / brick roof
+                    (brightness < 52 && Math.abs(r - g) < 6 && Math.abs(g - b) < 6)) // dark asphalt road
 
               if (isWaterPixel) {
                 rawWater++
@@ -1035,12 +1060,14 @@ export async function POST(req: Request) {
                   builtPct = opticalBuiltPct
                   waterPct = opticalWaterPct
                 } else {
-                  // Active green standing crops
+                  // Active agricultural parcel (may be partially cropped and partially tilled)
                   isFallowSoil = false
                   cropPct = Math.max(opticalCropPct, Math.round(opticalCropPct * 0.6 + esaWorldCover.cropPct * 0.4))
-                  soilPct = opticalSoilPct
-                  builtPct = opticalBuiltPct
+                  builtPct = Math.min(opticalBuiltPct, esaWorldCover.builtPct || 10)
                   waterPct = opticalWaterPct
+                  const treeVal = esaWorldCover.treePct || 0
+                  // Allocate remaining uncropped/non-built ground directly to soilPct
+                  soilPct = Math.max(opticalSoilPct, Math.max(0, 100 - (cropPct + builtPct + waterPct + treeVal)))
                 }
               }
             } else {
@@ -1061,9 +1088,7 @@ export async function POST(req: Request) {
               !isWater &&
               (Boolean(esaWorldCover?.isUrbanSettlement) ||
                 Boolean(groundTruth?.isUrbanSettlement) ||
-                builtPct >= 20 ||
-                (builtPct >= 15 && builtPct > cropPct) ||
-                avgStdev > 32)
+                (builtPct >= 35 && builtPct > cropPct + soilPct))
 
             // 3. Active Photosynthetic Crop Canopy
             const isGreenCrop =

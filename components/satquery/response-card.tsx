@@ -1,6 +1,55 @@
 import { ArrowUpRight, ArrowDownRight, ScanEye, Droplets, Sprout, Gauge } from "lucide-react"
 import type { ResponseCard as ResponseCardType } from "@/lib/satquery-data"
 
+function getLandcoverColor(item: { label: string; colorVar?: string }): string {
+  if (item.colorVar) return item.colorVar
+  const l = item.label.toLowerCase()
+  if (
+    l.includes("crop") ||
+    l.includes("vegetat") ||
+    l.includes("canopy") ||
+    l.includes("green") ||
+    l.includes("fasal") ||
+    l.includes("paddy")
+  ) {
+    return "var(--chart-3, #22c55e)"
+  }
+  if (
+    l.includes("soil") ||
+    l.includes("fallow") ||
+    l.includes("bare") ||
+    l.includes("silt") ||
+    l.includes("bund") ||
+    l.includes("margin") ||
+    l.includes("ground")
+  ) {
+    return "var(--chart-2, #f59e0b)"
+  }
+  if (l.includes("tree") || l.includes("forest") || l.includes("agroforestry")) {
+    return "var(--chart-5, #10b981)"
+  }
+  if (
+    l.includes("water") ||
+    l.includes("river") ||
+    l.includes("drainage") ||
+    l.includes("channel") ||
+    l.includes("lake")
+  ) {
+    return "var(--chart-1, #06b6d4)"
+  }
+  if (
+    l.includes("built") ||
+    l.includes("struct") ||
+    l.includes("roof") ||
+    l.includes("road") ||
+    l.includes("farmstead") ||
+    l.includes("shed")
+  ) {
+    return "var(--chart-4, #f97316)"
+  }
+  return "var(--primary, #3b82f6)"
+}
+
 export function ResponseCard({ card }: { card: ResponseCardType }) {
   return (
     <div className="mt-3 rounded-lg border border-border bg-background/60 p-3">
@@ -10,20 +59,23 @@ export function ResponseCard({ card }: { card: ResponseCardType }) {
 
       {card.kind === "landcover" && card.landcover && (
         <div className="flex flex-col gap-2">
-          {card.landcover.map((item) => (
-            <div key={item.label}>
-              <div className="mb-1 flex items-center justify-between text-xs">
-                <span>{item.label}</span>
-                <span className="font-mono text-muted-foreground">{item.pct}%</span>
+          {card.landcover.map((item) => {
+            const barColor = getLandcoverColor(item)
+            return (
+              <div key={item.label}>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="font-medium text-foreground/90">{item.label}</span>
+                  <span className="font-mono font-semibold text-foreground">{item.pct}%</span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary/80">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${item.pct}%`, backgroundColor: barColor }}
+                  />
+                </div>
               </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-                <div
-                  className="h-full rounded-full"
-                  style={{ width: `${item.pct}%`, backgroundColor: item.colorVar }}
-                />
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

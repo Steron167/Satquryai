@@ -115,21 +115,23 @@ export async function fetchESAWorldCover(
     let cropPct = Math.round((cropPixels / totalValid) * 100)
     let builtPct = Math.round((builtPixels / totalValid) * 100)
     let treePct = Math.round((treePixels / totalValid) * 100)
-    let soilPct = Math.max(0, 100 - (waterPct + cropPct + builtPct + treePct))
+    const barePct = Math.round((barePixels / totalValid) * 100)
+    let soilPct = Math.max(barePct, Math.max(0, 100 - (waterPct + cropPct + builtPct + treePct)))
 
     // Ensure sum equals 100
     const currentSum = waterPct + cropPct + builtPct + treePct + soilPct
     if (currentSum !== 100) {
       const diff = 100 - currentSum
-      if (waterPct >= cropPct && waterPct >= builtPct) waterPct += diff
+      if (soilPct > 0) soilPct = Math.max(0, soilPct + diff)
+      else if (waterPct >= cropPct && waterPct >= builtPct) waterPct += diff
       else if (cropPct >= builtPct) cropPct += diff
       else if (builtPct >= soilPct) builtPct += diff
-      else soilPct += diff
+      else soilPct = Math.max(0, soilPct + diff)
     }
 
     const isWaterBody = waterPct >= 20 || (waterPct >= 12 && waterPct > cropPct && waterPct > builtPct)
-    const isUrbanSettlement = !isWaterBody && (builtPct >= 25 || (builtPct >= 18 && builtPct > cropPct))
-    const isAgricultural = !isWaterBody && !isUrbanSettlement && (cropPct >= 20 || (cropPct + soilPct >= 40))
+    const isUrbanSettlement = !isWaterBody && (builtPct >= 35 || (builtPct >= 22 && builtPct > cropPct + soilPct))
+    const isAgricultural = !isWaterBody && !isUrbanSettlement && (cropPct >= 20 || (cropPct + soilPct >= 35))
 
     let dominantClass: ESAWorldCoverResult["dominantClass"] = "bare"
     let dominantLabel = "Open / Bare Silt Terrain"
