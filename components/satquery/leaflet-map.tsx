@@ -1003,24 +1003,43 @@ export function LeafletMap({
               labelLower.includes("river") ||
               labelLower.includes("canal") ||
               labelLower.includes("drainage"))
+          const isStructure =
+            labelLower.includes("struct") ||
+            labelLower.includes("build") ||
+            labelLower.includes("shed") ||
+            labelLower.includes("roof") ||
+            labelLower.includes("house") ||
+            labelLower.includes("facility") ||
+            labelLower.includes("settle") ||
+            labelLower.includes("urban") ||
+            labelLower.includes("commercial") ||
+            labelLower.includes("residential") ||
+            labelLower.includes("road") ||
+            labelLower.includes("farmstead")
           const isFallow =
-            labelLower.includes("fallow") ||
-            labelLower.includes("tilled") ||
-            labelLower.includes("soil") ||
-            labelLower.includes("cultivat") ||
-            labelLower.includes("plow") ||
-            labelLower.includes("furrow") ||
-            labelLower.includes("परती") ||
-            labelLower.includes("जुता") ||
-            labelLower.includes("bare")
+            !isStructure &&
+            (labelLower.includes("fallow") ||
+              labelLower.includes("tilled") ||
+              labelLower.includes("soil") ||
+              labelLower.includes("cultivat") ||
+              labelLower.includes("plow") ||
+              labelLower.includes("furrow") ||
+              labelLower.includes("परती") ||
+              labelLower.includes("जुता") ||
+              labelLower.includes("bare"))
           const isVeg =
+            !isStructure &&
             !isFallow &&
             (labelLower.includes("crop") ||
               labelLower.includes("vegetat") ||
               labelLower.includes("canopy") ||
               labelLower.includes("paddy") ||
               labelLower.includes("forest") ||
-              labelLower.includes("farm") ||
+              labelLower.includes("tree") ||
+              labelLower.includes("plant") ||
+              labelLower.includes("grass") ||
+              labelLower.includes("green") ||
+              (labelLower.includes("farm") && !labelLower.includes("struct")) ||
               labelLower.includes("field") ||
               labelLower.includes("parcel"))
 
@@ -1028,6 +1047,8 @@ export function LeafletMap({
             ? "#0284c7"
             : isWater
             ? "#06b6d4"
+            : isStructure
+            ? "#f97316"
             : isFallow
             ? "#d97706"
             : isVeg
@@ -1037,6 +1058,8 @@ export function LeafletMap({
             ? "#38bdf8"
             : isWater
             ? "#22d3ee"
+            : isStructure
+            ? "#fb923c"
             : isFallow
             ? "#f59e0b"
             : isVeg
@@ -1046,6 +1069,8 @@ export function LeafletMap({
             ? "border-sky-500 text-sky-200"
             : isWater
             ? "border-cyan-500 text-cyan-200"
+            : isStructure
+            ? "border-orange-500 text-orange-200"
             : isFallow
             ? "border-amber-500 text-amber-300"
             : isVeg
@@ -1055,6 +1080,8 @@ export function LeafletMap({
             ? "🌊 "
             : isWater
             ? "💧 "
+            : isStructure
+            ? "🏠 "
             : isFallow
             ? "🚜 "
             : isVeg
