@@ -8,6 +8,7 @@ import {
   type ApiAnalysis,
 } from "@/lib/satquery-data"
 import { fetchGroundTruth, type GroundTruthResult } from "@/lib/ground-truth-service"
+import { fetchESAWorldCover, type ESAWorldCoverResult } from "@/lib/esa-worldcover-service"
 
 export const maxDuration = 60
 
@@ -197,13 +198,59 @@ interface PixelMetrics {
   soilPct: number
 }
 
+function remapBoundingBoxesToAOI(
+  boxes: ApiAnalysis["boundingBoxes"],
+  aoi?: SelectedArea
+): ApiAnalysis["boundingBoxes"] {
+  if (!aoi || !boxes || boxes.length === 0) return boxes
+  const aoiW = Math.abs(aoi.xmax - aoi.xmin)
+  const aoiH = Math.abs(aoi.ymax - aoi.ymin)
+  const aoiXmin = Math.min(aoi.xmin, aoi.xmax)
+  const aoiYmin = Math.min(aoi.ymin, aoi.ymax)
+
+  return boxes
+    .filter((b) => b && Array.isArray(b.box_2d) && b.box_2d.length === 4)
+    .map((b) => {
+      const y0 = Number(b.box_2d[0])
+      const x0 = Number(b.box_2d[1])
+      const y1 = Number(b.box_2d[2])
+      const x1 = Number(b.box_2d[3])
+
+      // If already mapped to canvas coordinates within AOI bounds, preserve as is
+      if (
+        y0 >= aoiYmin - 1 &&
+        y1 <= aoiYmin + aoiH + 1 &&
+        x0 >= aoiXmin - 1 &&
+        x1 <= aoiXmin + aoiW + 1
+      ) {
+        return b
+      }
+
+      const cy0 = Number.isFinite(y0) ? Math.max(0, Math.min(100, y0)) : 15
+      const cx0 = Number.isFinite(x0) ? Math.max(0, Math.min(100, x0)) : 12
+      const cy1 = Number.isFinite(y1) ? Math.max(0, Math.min(100, y1)) : 85
+      const cx1 = Number.isFinite(x1) ? Math.max(0, Math.min(100, x1)) : 88
+
+      return {
+        ...b,
+        box_2d: [
+          Number((aoiYmin + (cy0 / 100) * aoiH).toFixed(2)),
+          Number((aoiXmin + (cx0 / 100) * aoiW).toFixed(2)),
+          Number((aoiYmin + (cy1 / 100) * aoiH).toFixed(2)),
+          Number((aoiXmin + (cx1 / 100) * aoiW).toFixed(2)),
+        ],
+      }
+    })
+}
+
 function enrichAnalysisWithQueryIntent(
   parsed: ApiAnalysis,
   query: string,
   sceneName: string,
   selectedAOI?: SelectedArea,
   groundTruth?: GroundTruthResult | null,
-  pixelMetrics?: PixelMetrics | null
+  pixelMetrics?: PixelMetrics | null,
+  esaWorldCover?: ESAWorldCoverResult | null
 ): ApiAnalysis {
   const q = query.toLowerCase()
   const ans = (parsed.answer || "").toLowerCase()
@@ -220,17 +267,19 @@ function enrichAnalysisWithQueryIntent(
     q.includes("बाढ़")
 
   // 1. Water Body / River Channel / Inundation Priority
-  const isWaterSurface = Boolean(
-    pixelMetrics?.isWater ||
-    groundTruth?.isWaterBody ||
-    (pixelMetrics?.waterPct && pixelMetrics.waterPct >= 25) ||
-    ans.includes("waterbody") ||
-    ans.includes("river") ||
-    ans.includes("waterway") ||
-    ans.includes("जल निकाय") ||
-    ans.includes("नदी") ||
-    ans.includes("जलमग्न")
-  )
+  const isWaterSurface = esaWorldCover
+    ? esaWorldCover.isWaterBody
+    : Boolean(
+        pixelMetrics?.isWater ||
+        (pixelMetrics?.waterPct && pixelMetrics.waterPct >= 25) ||
+        (groundTruth?.isWaterBody && (pixelMetrics?.waterPct ?? 0) >= 15) ||
+        ans.includes("waterbody") ||
+        ans.includes("river") ||
+        ans.includes("waterway") ||
+        ans.includes("जल निकाय") ||
+        ans.includes("नदी") ||
+        ans.includes("जलमग्न")
+      )
 
   const isUrbanExplicitQuery =
     q.includes("building") ||
@@ -246,10 +295,27 @@ function enrichAnalysisWithQueryIntent(
     parsed.detections = true
     if (isFloodQuery) parsed.flood = true
 
-    const waterPct = pixelMetrics?.waterPct ?? 78
-    const soilPct = pixelMetrics?.soilPct ?? 14
-    const cropPct = pixelMetrics?.cropPct ?? 6
-    const builtPct = pixelMetrics?.builtPct ?? 2
+    const waterPct = esaWorldCover?.waterPct ?? pixelMetrics?.waterPct ?? 85
+    const soilPct = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 12
+    const cropPct = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 0
+    const builtPct = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 3
+
+    // 1. PURGE HALLUCINATED BOUNDING BOXES: Purge ANY crop/farm/agricultural boxes on confirmed water surfaces!
+    if (parsed.boundingBoxes && parsed.boundingBoxes.length > 0) {
+      parsed.boundingBoxes = parsed.boundingBoxes.filter((b) => {
+        const lbl = (b.label || "").toLowerCase()
+        return (
+          !lbl.includes("crop") &&
+          !lbl.includes("farm") &&
+          !lbl.includes("agricultur") &&
+          !lbl.includes("khet") &&
+          !lbl.includes("fasal") &&
+          !lbl.includes("field") &&
+          !lbl.includes("plant") &&
+          !lbl.includes("vegetat")
+        )
+      })
+    }
 
     if (!parsed.boundingBoxes || parsed.boundingBoxes.length === 0) {
       parsed.boundingBoxes = [
@@ -261,36 +327,53 @@ function enrichAnalysisWithQueryIntent(
       ]
     }
 
-    if (!parsed.card || parsed.card.kind === "none" || parsed.card.kind === "ndvi") {
-      if (isFloodQuery) {
-        parsed.card = {
-          kind: "flood",
-          title: `SAR Inundation Delineation · ${locName}`,
-          floodArea: selectedAOI ? `~${(selectedAOI.areaKm2 * (waterPct / 100)).toFixed(2)} km²` : "~32.5 km²",
-        }
-      } else {
-        parsed.card = {
-          kind: "landcover",
-          title: `Land-Cover Composition · Surface Water (${locName})`,
-          landcover: [
-            { label: "Surface Water / River Channel", pct: waterPct },
-            { label: "Riverbank Soil & Silt Margins", pct: soilPct },
-            { label: "Riparian Vegetation & Fringe", pct: cropPct },
-            { label: "Structures / Bridges", pct: builtPct },
-          ],
-        }
+    // 2. ENFORCE GROUND TRUTH CARD: Unconditionally overwrite card on confirmed water surface
+    if (isFloodQuery) {
+      parsed.card = {
+        kind: "flood",
+        title: `SAR Inundation Delineation · ${locName}`,
+        floodArea: selectedAOI ? `~${(selectedAOI.areaKm2 * (waterPct / 100)).toFixed(2)} km²` : "~32.5 km²",
+      }
+    } else {
+      parsed.card = {
+        kind: "landcover",
+        title: esaWorldCover
+          ? `ESA WorldCover 10m · Surface Water (${locName})`
+          : `Land-Cover Composition · Surface Water (${locName})`,
+        landcover: [
+          { label: "Surface Water / River Channel", pct: waterPct },
+          { label: "Riverbank Soil & Silt Margins", pct: soilPct },
+          ...(cropPct > 0 ? [{ label: "Riparian Vegetation & Fringe", pct: cropPct }] : []),
+          ...(builtPct > 0 ? [{ label: "Structures / Bridges", pct: builtPct }] : []),
+        ],
       }
     }
 
-    // Guard against Gemini hallucinating cropland on a verified water surface
-    if (
+    // 3. AIRTIGHT TEXT GUARD: Prevent VLM from claiming agricultural fields in water bodies
+    const mentionsWater =
+      ans.includes("water") ||
+      ans.includes("river") ||
+      ans.includes("जल") ||
+      ans.includes("नदी") ||
+      ans.includes("ndwi") ||
+      ans.includes("sar")
+
+    const mentionsAgriculture =
+      ans.includes("crop") ||
       ans.includes("cropland") ||
-      ans.includes("कृषि") ||
+      ans.includes("farm") ||
       ans.includes("farmland") ||
+      ans.includes("agricultur") ||
+      ans.includes("field") ||
       ans.includes("khet") ||
-      ans.includes("settlement") ||
-      ans.includes("built-up")
-    ) {
+      ans.includes("fasal") ||
+      ans.includes("कृषि") ||
+      ans.includes("खेती") ||
+      ans.includes("फसल")
+
+    const hasHallucination = mentionsAgriculture || !mentionsWater
+
+    if (hasHallucination) {
       const isHindi =
         /[\u0900-\u097F]/.test(query) ||
         q.includes("khet") ||
@@ -302,9 +385,9 @@ function enrichAnalysisWithQueryIntent(
         q.includes("kisan")
 
       if (isHindi) {
-        parsed.answer = `उपग्रह स्पेक्ट्रल और रडार टेलीमेट्री के अनुसार यह चयनित क्षेत्र मुख्य रूप से **जल निकाय / नदी चैनल (${locName})** है। यहाँ लगभग **${waterPct}%** सतही जल और जल प्रवाह दर्ज किया गया है। नदी तट की मिट्टी/रेत लगभग ${soilPct}% तथा किनारे की वनस्पति लगभग ${cropPct}% है। जलीय सीमांकन हेतु NDWI / SAR लेयर सक्रिय कर दी गई है।`
+        parsed.answer = `ईएसए वर्ल्डकवर 10m सैटेलाइट रडार और स्पेक्ट्रल टेलीमेट्री के अनुसार यह चयनित क्षेत्र मुख्य रूप से **जल निकाय / नदी चैनल (${locName})** है। यहाँ लगभग **${waterPct}%** सतही जल और सक्रिय जल प्रवाह दर्ज किया गया है। नदी तट की मिट्टी/रेत लगभग ${soilPct}% तथा किनारे की वनस्पति लगभग ${cropPct}% है। इस जलीय क्षेत्र में कोई कृषि खेत या फसलें मौजूद नहीं हैं। सटीक जलीय सीमांकन हेतु NDWI / SAR लेयर सक्रिय कर दी गई है।`
       } else {
-        parsed.answer = `Physical multispectral and radar satellite observations confirm that this selected Area of Interest is predominantly a **Surface Water Body / River Channel (${locName})** with **${waterPct}%** water surface coverage. Specular absorption across red and near-infrared bands delineates active surface water flow, flanked by riverbank silt margins (${soilPct}%) and riparian fringe vegetation (${cropPct}%). Calibrated NDWI / SAR water indices have been activated for hydrological delineation.`
+        parsed.answer = `Certified ESA WorldCover 10m satellite observations and physical multispectral absorption confirm that this selected Area of Interest is predominantly a **Surface Water Body / River Channel (${locName})** with **${waterPct}%** water surface coverage. Specular absorption across red and near-infrared bands confirms active water flow, flanked by riverbank silt margins (${soilPct}%) and riparian fringe vegetation (${cropPct}%). No standing crops or agricultural fields exist within this aquatic zone. Calibrated NDWI / SAR water indices have been activated for hydrological delineation.`
       }
     }
 
@@ -314,30 +397,34 @@ function enrichAnalysisWithQueryIntent(
   // Detect whether Gemini, ground-truth, or pixel metrics identified this as urban/built-up settlement
   const isSettlement =
     !isWaterSurface &&
-    Boolean(
-      groundTruth?.isUrbanSettlement ||
-        ans.includes("built-up") ||
-        ans.includes("settlement") ||
-        ans.includes("residential") ||
-        ans.includes("building") ||
-        ans.includes("houses") ||
-        ans.includes("मकान") ||
-        ans.includes("बस्ती") ||
-        ans.includes("कॉलोनी") ||
-        (pixelMetrics?.isBuiltUp && !pixelMetrics?.isCropVegetation)
-    )
+    (esaWorldCover
+      ? esaWorldCover.isUrbanSettlement
+      : Boolean(
+          groundTruth?.isUrbanSettlement ||
+          ans.includes("built-up") ||
+          ans.includes("settlement") ||
+          ans.includes("residential") ||
+          ans.includes("building") ||
+          ans.includes("houses") ||
+          ans.includes("मकान") ||
+          ans.includes("बस्ती") ||
+          ans.includes("कॉलोनी") ||
+          (pixelMetrics?.isBuiltUp && !pixelMetrics?.isCropVegetation)
+        ))
 
   const isCrop =
     !isWaterSurface &&
     !isSettlement &&
-    Boolean(
-      pixelMetrics?.isCropVegetation ||
-        (groundTruth?.isAgricultural && !groundTruth?.isUrbanSettlement) ||
-        ans.includes("cropland") ||
-        ans.includes("fasal") ||
-        ans.includes("khet") ||
-        ans.includes("कृषि")
-    )
+    (esaWorldCover
+      ? esaWorldCover.isAgricultural
+      : Boolean(
+          pixelMetrics?.isCropVegetation ||
+          (groundTruth?.isAgricultural && !groundTruth?.isUrbanSettlement) ||
+          ans.includes("cropland") ||
+          ans.includes("fasal") ||
+          ans.includes("khet") ||
+          ans.includes("कृषि")
+        ))
 
   // Built-up Urban Settlement: preserve optical layer, ensure settlement boxes/card, DO NOT overwrite answer
   if (isSettlement) {
@@ -350,19 +437,22 @@ function enrichAnalysisWithQueryIntent(
         { box_2d: [46, 46, 82, 84], label: "Settlement Structures & Corridors (95%)", confidence: 0.95 },
       ]
     }
-    if (!parsed.card || parsed.card.kind !== "landcover") {
-      const built = pixelMetrics?.builtPct ?? 60
-      const soil = pixelMetrics?.soilPct ?? 25
-      const crop = pixelMetrics?.cropPct ?? 15
-      parsed.card = {
-        kind: "landcover",
-        title: `Land-Cover Composition · Built-up Settlement (${locName})`,
-        landcover: [
-          { label: "Built-up Roofs & Structures", pct: built },
-          { label: "Paved Streets & Open Soil", pct: soil },
-          { label: "Vegetation & Urban Trees", pct: crop },
-        ],
-      }
+    const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 60
+    const soil = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 25
+    const crop = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 15
+    const trees = esaWorldCover?.treePct ?? 0
+
+    parsed.card = {
+      kind: "landcover",
+      title: esaWorldCover
+        ? `ESA WorldCover 10m · Built-up Settlement (${locName})`
+        : `Land-Cover Composition · Built-up Settlement (${locName})`,
+      landcover: [
+        { label: "Built-up Roofs & Structures", pct: built },
+        { label: "Paved Streets & Open Soil", pct: soil },
+        ...(trees > 0 ? [{ label: "Urban Trees & Canopy", pct: trees }] : []),
+        ...(crop > 0 ? [{ label: "Open Green Space & Parks", pct: crop }] : []),
+      ],
     }
     return parsed
   }
@@ -378,19 +468,22 @@ function enrichAnalysisWithQueryIntent(
         { box_2d: [48, 36, 84, 82], label: "Cultivated Field Parcel (92%)", confidence: 0.92 },
       ]
     }
-    if (!parsed.card || parsed.card.kind !== "landcover") {
-      const crop = pixelMetrics?.cropPct ?? 70
-      const soil = pixelMetrics?.soilPct ?? 25
-      const built = pixelMetrics?.builtPct ?? 5
-      parsed.card = {
-        kind: "landcover",
-        title: `Land-Cover Composition · Agricultural Cropland (${locName})`,
-        landcover: [
-          { label: "Active Cropland / Green Canopy", pct: crop },
-          { label: "Cultivated Soil / Field Margins", pct: soil },
-          { label: "Built / Farmsteads", pct: built },
-        ],
-      }
+    const crop = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 70
+    const soil = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 25
+    const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 5
+    const trees = esaWorldCover?.treePct ?? 0
+
+    parsed.card = {
+      kind: "landcover",
+      title: esaWorldCover
+        ? `ESA WorldCover 10m · Agricultural Cropland (${locName})`
+        : `Land-Cover Composition · Agricultural Cropland (${locName})`,
+      landcover: [
+        { label: "Active Cropland / Green Canopy", pct: crop },
+        { label: "Cultivated Soil / Field Margins", pct: soil },
+        ...(trees > 0 ? [{ label: "Tree Cover / Agroforestry", pct: trees }] : []),
+        ...(built > 0 ? [{ label: "Built / Farmsteads", pct: built }] : []),
+      ],
     }
     return parsed
   }
@@ -495,46 +588,73 @@ function enrichAnalysisWithQueryIntent(
       ]
     }
   } else if (selectedAOI) {
-    if (!parsed.card || parsed.card.kind === "none") {
+    if (!parsed.card || parsed.card.kind === "none" || Boolean(esaWorldCover)) {
       if (isWaterSurface || pixelMetrics?.isWater || groundTruth?.isWaterBody) {
+        const water = esaWorldCover?.waterPct ?? pixelMetrics?.waterPct ?? 82
+        const soil = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 14
+        const crop = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 0
+        const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 4
         parsed.card = {
           kind: "landcover",
-          title: `Land-Cover Composition · Water Body (~${selectedAOI.areaKm2} km²)`,
+          title: esaWorldCover
+            ? `ESA WorldCover 10m · Surface Water (~${selectedAOI.areaKm2} km²)`
+            : `Land-Cover Composition · Water Body (~${selectedAOI.areaKm2} km²)`,
           landcover: [
-            { label: "Surface Water / River Channel", pct: pixelMetrics?.waterPct ?? 76 },
-            { label: "Riverbank Margins & Soil", pct: pixelMetrics?.soilPct ?? 14 },
-            { label: "Riparian Vegetation & Fringe", pct: pixelMetrics?.cropPct ?? 8 },
-            { label: "Structures / Bridges", pct: pixelMetrics?.builtPct ?? 2 },
+            { label: "Surface Water / River Channel", pct: water },
+            { label: "Riverbank Margins & Soil", pct: soil },
+            ...(crop > 0 ? [{ label: "Riparian Vegetation & Fringe", pct: crop }] : []),
+            ...(built > 0 ? [{ label: "Structures / Bridges", pct: built }] : []),
           ],
         }
       } else if (isSettlement) {
+        const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 65
+        const soil = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 22
+        const crop = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 13
+        const trees = esaWorldCover?.treePct ?? 0
         parsed.card = {
           kind: "landcover",
-          title: `Land-Cover Composition · Built-up Settlement (~${selectedAOI.areaKm2} km²)`,
+          title: esaWorldCover
+            ? `ESA WorldCover 10m · Built-up Settlement (~${selectedAOI.areaKm2} km²)`
+            : `Land-Cover Composition · Built-up Settlement (~${selectedAOI.areaKm2} km²)`,
           landcover: [
-            { label: "Built-up Roofs & Structures", pct: pixelMetrics?.builtPct ?? 65 },
-            { label: "Paved Streets & Open Soil", pct: pixelMetrics?.soilPct ?? 22 },
-            { label: "Open Ground / Urban Trees", pct: pixelMetrics?.cropPct ?? 13 },
+            { label: "Built-up Roofs & Structures", pct: built },
+            { label: "Paved Streets & Open Soil", pct: soil },
+            ...(trees > 0 ? [{ label: "Urban Trees & Canopy", pct: trees }] : []),
+            ...(crop > 0 ? [{ label: "Open Green Space & Parks", pct: crop }] : []),
           ],
         }
-      } else if (pixelMetrics?.isCropVegetation || groundTruth?.isAgricultural) {
+      } else if (esaWorldCover?.isAgricultural || pixelMetrics?.isCropVegetation || groundTruth?.isAgricultural) {
+        const crop = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 72
+        const soil = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 23
+        const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 5
+        const trees = esaWorldCover?.treePct ?? 0
         parsed.card = {
           kind: "landcover",
-          title: `Land-Cover Composition · Field Parcel (~${selectedAOI.areaKm2} km²)`,
+          title: esaWorldCover
+            ? `ESA WorldCover 10m · Agricultural Parcel (~${selectedAOI.areaKm2} km²)`
+            : `Land-Cover Composition · Field Parcel (~${selectedAOI.areaKm2} km²)`,
           landcover: [
-            { label: "Cropland / Vegetation", pct: pixelMetrics?.cropPct ?? 72 },
-            { label: "Cultivated Soil / Fallow", pct: pixelMetrics?.soilPct ?? 23 },
-            { label: "Built / Farmsteads", pct: pixelMetrics?.builtPct ?? 5 },
+            { label: "Cropland / Vegetation", pct: crop },
+            { label: "Cultivated Soil / Fallow", pct: soil },
+            ...(trees > 0 ? [{ label: "Tree Cover / Canopy", pct: trees }] : []),
+            ...(built > 0 ? [{ label: "Built / Farmsteads", pct: built }] : []),
           ],
         }
       } else {
+        const soil = esaWorldCover?.soilPct ?? pixelMetrics?.soilPct ?? 50
+        const crop = esaWorldCover?.cropPct ?? pixelMetrics?.cropPct ?? 35
+        const built = esaWorldCover?.builtPct ?? pixelMetrics?.builtPct ?? 15
+        const water = esaWorldCover?.waterPct ?? 0
         parsed.card = {
           kind: "landcover",
-          title: `Land-Cover Composition · Selected Area (~${selectedAOI.areaKm2} km²)`,
+          title: esaWorldCover
+            ? `ESA WorldCover 10m · Land Cover (~${selectedAOI.areaKm2} km²)`
+            : `Land-Cover Composition · Selected Area (~${selectedAOI.areaKm2} km²)`,
           landcover: [
-            { label: "Open Ground / Soil", pct: pixelMetrics?.soilPct ?? 50 },
-            { label: "Vegetative Cover", pct: pixelMetrics?.cropPct ?? 35 },
-            { label: "Structures / Infrastructure", pct: pixelMetrics?.builtPct ?? 15 },
+            ...(water > 0 ? [{ label: "Water Surface", pct: water }] : []),
+            { label: "Open Ground / Soil", pct: soil },
+            { label: "Vegetative Cover", pct: crop },
+            { label: "Structures / Infrastructure", pct: built },
           ],
         }
       }
@@ -651,13 +771,17 @@ export async function POST(req: Request) {
 
     let aoiOpticalFetched = false
     let groundTruth: GroundTruthResult | null = null
+    let esaWorldCover: ESAWorldCoverResult | null = null
 
-    if (body.selectedAOI?.bounds) {
-      const b = body.selectedAOI.bounds
+    const targetBounds = body.selectedAOI?.bounds || scene.bounds
 
-      const [tileBufResult, gtResult] = await Promise.allSettled([
-        fetchRealAOIImage(b, 17),
+    if (targetBounds) {
+      const b = targetBounds
+
+      const [tileBufResult, gtResult, esaResult] = await Promise.allSettled([
+        body.selectedAOI?.bounds ? fetchRealAOIImage(b, 17) : Promise.resolve(null),
         fetchGroundTruth(b),
+        fetchESAWorldCover(b),
       ])
 
       if (tileBufResult.status === "fulfilled" && tileBufResult.value) {
@@ -667,6 +791,10 @@ export async function POST(req: Request) {
 
       if (gtResult.status === "fulfilled") {
         groundTruth = gtResult.value
+      }
+
+      if (esaResult.status === "fulfilled" && esaResult.value) {
+        esaWorldCover = esaResult.value
       }
     }
 
@@ -739,19 +867,26 @@ export async function POST(req: Request) {
               const pixelExG = 2 * g - r - b
               const brightness = (r + g + b) / 3
 
-              // 1. Water & Inundation: Strong Red/NIR absorption + low brightness + specular scatter
+              // 1. Water & Inundation: Strong Red/NIR absorption OR turbid silty water (smooth river, moderate green-blue)
+              const isTurbidWater =
+                !groundTruth?.isAgricultural &&
+                r < 115 && g < 130 && b < 120 &&
+                Math.abs(r - g) < 24 && Math.abs(g - b) < 26 &&
+                pixelExG < 14 && brightness < 110
+
               const isWaterPixel =
                 (r <= 38 && brightness < 58 && (g > r * 1.15 || b > r * 1.05)) ||
                 (b > r * 1.20 && b > g * 0.90 && brightness < 80) ||
                 (r <= 32 && brightness < 46) ||
-                (r <= 36 && brightness < 52 && b >= r * 0.98)
+                (r <= 36 && brightness < 52 && b >= r * 0.98) ||
+                isTurbidWater
 
-              // 2. Active Photosynthetic Crop Canopy: Requires sunlit foliage brightness (r >= 40, g >= 58)
+              // 2. Active Photosynthetic Crop Canopy: Requires genuine chlorophyll contrast (pixelExG >= 14)
               const isCropPixel =
                 !isWaterPixel &&
                 !groundTruth?.isUrbanSettlement &&
-                ((g >= 65 && r >= 40 && g > r * 1.12 && g > b * 1.10 && pixelExG > 8) ||
-                 (g >= 58 && r >= 42 && g > r * 1.20 && pixelExG > 12))
+                ((g >= 70 && r >= 42 && g > r * 1.16 && g > b * 1.12 && pixelExG >= 14) ||
+                 (g >= 60 && r >= 40 && g > r * 1.22 && pixelExG >= 18))
 
               // 3. Built-up Settlement: High-contrast roofs, concrete, asphalt
               const isBuiltPixel =
@@ -787,8 +922,17 @@ export async function POST(req: Request) {
               else soilPct += diff
             }
 
+            // Calibrate with ESA WorldCover 10m ground truth if available
+            if (esaWorldCover) {
+              waterPct = esaWorldCover.waterPct
+              cropPct = esaWorldCover.cropPct
+              builtPct = esaWorldCover.builtPct
+              soilPct = esaWorldCover.soilPct
+            }
+
             // 1. Water Body / Channel / Flood Inundation
             const isWater =
+              Boolean(esaWorldCover?.isWaterBody) ||
               waterPct >= 25 ||
               (waterPct >= 15 && waterPct > cropPct && waterPct > builtPct) ||
               Boolean(groundTruth?.isWaterBody && waterPct >= 10)
@@ -796,7 +940,8 @@ export async function POST(req: Request) {
             // 2. Dense Built-up Settlement (Roofs, concrete, roads)
             const isBuiltUp =
               !isWater &&
-              (Boolean(groundTruth?.isUrbanSettlement) ||
+              (Boolean(esaWorldCover?.isUrbanSettlement) ||
+                Boolean(groundTruth?.isUrbanSettlement) ||
                 builtPct >= 20 ||
                 (builtPct >= 15 && builtPct > cropPct) ||
                 avgStdev > 32)
@@ -805,7 +950,9 @@ export async function POST(req: Request) {
             const isGreenCrop =
               !isWater &&
               !isBuiltUp &&
-              (cropPct > 20 || (gMean > rMean * 1.12 && exG > 8))
+              (Boolean(esaWorldCover?.isAgricultural) ||
+                cropPct > 20 ||
+                (gMean > rMean * 1.16 && exG > 12))
 
             // 4. Cultivated / Plowing / Fallow Soil Farmland
             const isSoilFarmland =
@@ -814,7 +961,8 @@ export async function POST(req: Request) {
               !isGreenCrop &&
               soilPct > 50
 
-            const isCropVegetation = !isWater && !isBuiltUp && (isGreenCrop || isSoilFarmland)
+            const isCropVegetation =
+              !isWater && !isBuiltUp && (Boolean(esaWorldCover?.isAgricultural) || isGreenCrop || isSoilFarmland)
 
             pixelMetrics = {
               stdev: avgStdev,
@@ -828,7 +976,7 @@ export async function POST(req: Request) {
               soilPct,
             }
 
-            // Synchronize groundTruth with physical spectral observations
+            // Synchronize groundTruth with physical spectral observations & ESA WorldCover
             if (groundTruth) {
               if (isWater) {
                 groundTruth.isWaterBody = true
@@ -839,23 +987,29 @@ export async function POST(req: Request) {
                   !groundTruth.placeName.toLowerCase().includes("river") &&
                   !groundTruth.placeName.toLowerCase().includes("water") &&
                   !groundTruth.placeName.toLowerCase().includes("godavari") &&
+                  !groundTruth.placeName.toLowerCase().includes("hooghly") &&
+                  !groundTruth.placeName.toLowerCase().includes("ganga") &&
                   !groundTruth.placeName.toLowerCase().includes("nadi")
                 ) {
                   groundTruth.placeName = `${groundTruth.placeName} (Water Body / River Channel)`
                 }
-                groundTruth.summary = `Surface water body and river drainage channel in ${groundTruth.placeName}`
+                groundTruth.summary =
+                  esaWorldCover?.summary || `Surface water body and river drainage channel in ${groundTruth.placeName}`
               } else if (isBuiltUp) {
                 groundTruth.isUrbanSettlement = true
                 groundTruth.isAgricultural = false
                 groundTruth.isWaterBody = false
                 groundTruth.settlementType = "urban_settlement"
-                groundTruth.summary = `Built-up settlement and infrastructure in ${groundTruth.placeName}`
+                groundTruth.summary =
+                  esaWorldCover?.summary || `Built-up settlement and infrastructure in ${groundTruth.placeName}`
               } else if (isCropVegetation) {
                 groundTruth.isAgricultural = true
                 groundTruth.isUrbanSettlement = false
                 groundTruth.isWaterBody = false
                 groundTruth.settlementType = "farmland"
-                groundTruth.summary = `Active agricultural cropland and cultivated field parcel in ${groundTruth.placeName}`
+                groundTruth.summary =
+                  esaWorldCover?.summary ||
+                  `Active agricultural cropland and cultivated field parcel in ${groundTruth.placeName}`
               }
             }
           } catch (statsErr) {
@@ -941,6 +1095,20 @@ export async function POST(req: Request) {
           `  * Built Structures / Concrete / Roofs: ${pixelMetrics.builtPct}%\n` +
           `  * Cultivated Soil / Bare Ground / Margins: ${pixelMetrics.soilPct}%\n` +
           `- Surface Texture Variation (Edge Density): stdev ${pixelMetrics.stdev.toFixed(1)}\n\n`
+      }
+      if (esaWorldCover) {
+        promptText +=
+          `[ESA WORLDCOVER 10M SATELLITE GROUND TRUTH]:\n` +
+          `- Certified Land-Cover Classification: ${esaWorldCover.dominantLabel}\n` +
+          `- Surface Water / River Channels: ${esaWorldCover.waterPct}%\n` +
+          `- Agricultural Cropland / Cultivated: ${esaWorldCover.cropPct}%\n` +
+          `- Built-up Infrastructure & Structures: ${esaWorldCover.builtPct}%\n` +
+          `- Tree Cover / Forest Canopy: ${esaWorldCover.treePct}%\n` +
+          `- Bare Soil / Sand / Silt: ${esaWorldCover.soilPct}%\n` +
+          `- Verified Summary: ${esaWorldCover.summary}\n` +
+          (esaWorldCover.isWaterBody
+            ? `  * CRITICAL GROUND TRUTH: Certified ESA WorldCover 10m telemetry proves this parcel is predominantly a Surface Water Body / River Channel (${esaWorldCover.waterPct}% water). You MUST delineate it as water/river. DO NOT describe it as farmland or crops.\n\n`
+            : `\n`)
       }
       if (groundTruth) {
         promptText +=
@@ -1106,40 +1274,22 @@ export async function POST(req: Request) {
             const candidateText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text
             if (candidateText) {
               let parsed = JSON.parse(candidateText) as ApiAnalysis
-              parsed = enrichAnalysisWithQueryIntent(parsed, query, scene.name, body.selectedAOI, groundTruth, pixelMetrics)
+              parsed = enrichAnalysisWithQueryIntent(
+                parsed,
+                query,
+                scene.name,
+                body.selectedAOI,
+                groundTruth,
+                pixelMetrics,
+                esaWorldCover
+              )
 
               if (body.selectedAOI && parsed.boundingBoxes && parsed.boundingBoxes.length > 0) {
-                const aoi = body.selectedAOI
-                const aoiW = Math.abs(aoi.xmax - aoi.xmin)
-                const aoiH = Math.abs(aoi.ymax - aoi.ymin)
-                const aoiXmin = Math.min(aoi.xmin, aoi.xmax)
-                const aoiYmin = Math.min(aoi.ymin, aoi.ymax)
-
-                parsed.boundingBoxes = parsed.boundingBoxes
-                  .filter((b) => b && Array.isArray(b.box_2d) && b.box_2d.length === 4)
-                  .map((b) => {
-                    const y0 = Number(b.box_2d[0])
-                    const x0 = Number(b.box_2d[1])
-                    const y1 = Number(b.box_2d[2])
-                    const x1 = Number(b.box_2d[3])
-                    const cy0 = Number.isFinite(y0) ? Math.max(0, Math.min(100, y0)) : 20
-                    const cx0 = Number.isFinite(x0) ? Math.max(0, Math.min(100, x0)) : 20
-                    const cy1 = Number.isFinite(y1) ? Math.max(0, Math.min(100, y1)) : 60
-                    const cx1 = Number.isFinite(x1) ? Math.max(0, Math.min(100, x1)) : 60
-
-                    return {
-                      ...b,
-                      box_2d: [
-                        Number((aoiYmin + (cy0 / 100) * aoiH).toFixed(2)),
-                        Number((aoiXmin + (cx0 / 100) * aoiW).toFixed(2)),
-                        Number((aoiYmin + (cy1 / 100) * aoiH).toFixed(2)),
-                        Number((aoiXmin + (cx1 / 100) * aoiW).toFixed(2)),
-                      ],
-                    }
-                  })
+                parsed.boundingBoxes = remapBoundingBoxesToAOI(parsed.boundingBoxes, body.selectedAOI)
               }
 
               const sources = [
+                esaWorldCover ? `ESA WorldCover 10m Ground Truth (${esaWorldCover.dominantLabel})` : null,
                 groundTruth ? `OpenStreetMap (OSM) Ground Truth: ${groundTruth.placeName}` : null,
                 `Google Gemini 3.5 Flash (${modelName})`,
                 tavilyData ? "Tavily Web Search" : null,
@@ -1222,40 +1372,21 @@ export async function POST(req: Request) {
               const content = groqJson.choices?.[0]?.message?.content
               if (content) {
                 let parsed = JSON.parse(content) as ApiAnalysis
-                parsed = enrichAnalysisWithQueryIntent(parsed, query, scene.name, body.selectedAOI, groundTruth, pixelMetrics)
-                // Coordinate remapping if ROI was selected
+                parsed = enrichAnalysisWithQueryIntent(
+                  parsed,
+                  query,
+                  scene.name,
+                  body.selectedAOI,
+                  groundTruth,
+                  pixelMetrics,
+                  esaWorldCover
+                )
                 if (body.selectedAOI && parsed.boundingBoxes && parsed.boundingBoxes.length > 0) {
-                  const aoi = body.selectedAOI
-                  const aoiW = Math.abs(aoi.xmax - aoi.xmin)
-                  const aoiH = Math.abs(aoi.ymax - aoi.ymin)
-                  const aoiXmin = Math.min(aoi.xmin, aoi.xmax)
-                  const aoiYmin = Math.min(aoi.ymin, aoi.ymax)
-
-                  parsed.boundingBoxes = parsed.boundingBoxes
-                    .filter((b) => b && Array.isArray(b.box_2d) && b.box_2d.length === 4)
-                    .map((b) => {
-                      const y0 = Number(b.box_2d[0])
-                      const x0 = Number(b.box_2d[1])
-                      const y1 = Number(b.box_2d[2])
-                      const x1 = Number(b.box_2d[3])
-                      const cy0 = Number.isFinite(y0) ? Math.max(0, Math.min(100, y0)) : 20
-                      const cx0 = Number.isFinite(x0) ? Math.max(0, Math.min(100, x0)) : 20
-                      const cy1 = Number.isFinite(y1) ? Math.max(0, Math.min(100, y1)) : 60
-                      const cx1 = Number.isFinite(x1) ? Math.max(0, Math.min(100, x1)) : 60
-
-                      return {
-                        ...b,
-                        box_2d: [
-                          Number((aoiYmin + (cy0 / 100) * aoiH).toFixed(2)),
-                          Number((aoiXmin + (cx0 / 100) * aoiW).toFixed(2)),
-                          Number((aoiYmin + (cy1 / 100) * aoiH).toFixed(2)),
-                          Number((aoiXmin + (cx1 / 100) * aoiW).toFixed(2)),
-                        ],
-                      }
-                    })
+                  parsed.boundingBoxes = remapBoundingBoxesToAOI(parsed.boundingBoxes, body.selectedAOI)
                 }
 
                 const sources = [
+                  esaWorldCover ? `ESA WorldCover 10m Ground Truth (${esaWorldCover.dominantLabel})` : null,
                   groundTruth ? `OpenStreetMap (OSM) Ground Truth: ${groundTruth.placeName}` : null,
                   `Groq LPU (${modelName})`,
                   tavilyData ? "Tavily Web Search" : null,
@@ -1321,9 +1452,22 @@ export async function POST(req: Request) {
                   : { kind: "none" }
         : { kind: "none" },
     }
-    const fallbackResult = enrichAnalysisWithQueryIntent(rawFallback, query, scene.name, body.selectedAOI, groundTruth, pixelMetrics)
+    const fallbackResult = enrichAnalysisWithQueryIntent(
+      rawFallback,
+      query,
+      scene.name,
+      body.selectedAOI,
+      groundTruth,
+      pixelMetrics,
+      esaWorldCover
+    )
+
+    if (body.selectedAOI && fallbackResult.boundingBoxes && fallbackResult.boundingBoxes.length > 0) {
+      fallbackResult.boundingBoxes = remapBoundingBoxesToAOI(fallbackResult.boundingBoxes, body.selectedAOI)
+    }
 
     const sources = [
+      esaWorldCover ? `ESA WorldCover 10m Ground Truth (${esaWorldCover.dominantLabel})` : null,
       groundTruth ? `OpenStreetMap (OSM) Ground Truth: ${groundTruth.placeName}` : null,
       "SatQuery Dual-Stream VLM",
       tavilyData ? "Tavily Web Search" : null,

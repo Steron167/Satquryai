@@ -545,7 +545,7 @@ export default function Page() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
-      {/* Navigation Header with Benchmark, Report & Judges Demo triggers */}
+      {/* Navigation Header with Benchmark & Report triggers */}
       <AppHeader
         onOpenBenchmark={() => setIsBenchmarkOpen(true)}
         onOpenReport={() => setIsReportOpen(true)}
@@ -554,8 +554,6 @@ export default function Page() {
           setIsLeftPanelOpen((prev) => !prev)
           setMobileTab("places")
         }}
-        onStartDemo={isDemoRunning ? stopJudgesDemo : startJudgesDemo}
-        isDemoRunning={isDemoRunning}
         onOpenChat={() => setMobileTab("chat")}
       />
 
