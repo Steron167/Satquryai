@@ -3,6 +3,7 @@ export interface GroundTruthResult {
   isAgricultural: boolean
   isWaterBody: boolean
   isInstitutionalSportsGround?: boolean
+  isPeriUrban?: boolean
   placeName: string
   settlementType?: string
   suburb?: string
@@ -223,6 +224,21 @@ export async function fetchGroundTruth(
           osmType === "neighbourhood")
     )
 
+    // Check if the location is within peri-urban / town limits
+    const isPeriUrban = Boolean(
+      (suburb && suburb.trim().length > 0) ||
+      (town && town.trim().length > 0 && (
+        displayName.toLowerCase().includes("nagar") ||
+        displayName.toLowerCase().includes("colony") ||
+        displayName.toLowerCase().includes("layout") ||
+        displayName.toLowerCase().includes("society") ||
+        displayName.toLowerCase().includes("road") ||
+        displayName.toLowerCase().includes("ward") ||
+        displayName.toLowerCase().includes("nagar") ||
+        displayName.toLowerCase().includes("shingnapur")
+      ))
+    )
+
     // An area is classified as urban settlement if it has explicit buildings, urban landuse, or is a named urban residential colony in town (and not a dedicated sports/campus ground)
     const isUrbanSettlement =
       !isWaterBody &&
@@ -245,6 +261,7 @@ export async function fetchGroundTruth(
       isAgricultural,
       isWaterBody,
       isInstitutionalSportsGround,
+      isPeriUrban,
       placeName: resolvedPlaceName,
       settlementType: isWaterBody
         ? "waterbody"

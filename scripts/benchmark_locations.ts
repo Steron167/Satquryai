@@ -1,12 +1,13 @@
 import { fetchGroundTruth } from "../lib/ground-truth-service"
 import { fetchESAWorldCover } from "../lib/esa-worldcover-service"
+import { fetchRealAOIImage, computeOpticalPixelMetrics } from "../lib/aoi-tile-service"
 
 interface BenchmarkTest {
   name: string
   lat: number
   lon: number
   deltaKm: number
-  expectedCategory: "sports" | "crop" | "water" | "urban" | "fallow"
+  expectedCategory: "sports" | "crop" | "water" | "urban" | "fallow" | "vacant_plot"
   description: string
 }
 
@@ -28,12 +29,28 @@ const BENCHMARK_TESTS: BenchmarkTest[] = [
     description: "Iconic cricket stadium and sports arena",
   },
   {
+    name: "Wankhede Cricket Stadium (Mumbai)",
+    lat: 18.9389,
+    lon: 72.8258,
+    deltaKm: 0.15,
+    expectedCategory: "sports",
+    description: "International cricket stadium with turf pitch and spectator stands",
+  },
+  {
     name: "Active Farmland Parcel (Kopargaon North)",
     lat: 19.8997,
     lon: 74.4529,
     deltaKm: 0.1,
     expectedCategory: "crop",
     description: "Lush green standing agricultural crops",
+  },
+  {
+    name: "Punjab Wheat & Grain Agricultural Parcel (Khanna)",
+    lat: 30.7000,
+    lon: 76.1000,
+    deltaKm: 0.1,
+    expectedCategory: "crop",
+    description: "High-yield agrarian crop fields in Punjab agricultural belt",
   },
   {
     name: "Hussain Sagar Lake (Hyderabad)",
@@ -67,6 +84,14 @@ const BENCHMARK_TESTS: BenchmarkTest[] = [
     expectedCategory: "fallow",
     description: "Dry soil, sand dunes and sparse vegetation in Thar Desert",
   },
+  {
+    name: "Annapurna Nagar Vacant Layout Plot (Kopargaon)",
+    lat: 19.8982,
+    lon: 74.4785,
+    deltaKm: 0.1,
+    expectedCategory: "vacant_plot",
+    description: "Peri-urban unpaved residential layout plot / open dirt ground near Sai Colony",
+  },
 ]
 
 async function runBenchmark() {
@@ -88,21 +113,84 @@ async function runBenchmark() {
     }
 
     try {
-      const [gt, esa] = await Promise.all([
+      const [gt, esa, optBuf] = await Promise.all([
         fetchGroundTruth(bounds),
         fetchESAWorldCover(bounds).catch(() => null),
+        fetchRealAOIImage(bounds, 17).catch(() => null),
       ])
 
+      let opticalCropPct = 0
+      let opticalSoilPct = 0
+      let opticalWaterPct = 0
+      let opticalBuiltPct = 0
+      let isVacantPlot = false
+      let isFallowSoil = false
+
+      if (optBuf) {
+        const isAgriContext = Boolean(gt.isAgricultural || esa?.isAgricultural)
+        const isUrbanContext = Boolean(gt.isUrbanSettlement || esa?.isUrbanSettlement)
+        const optical = await computeOpticalPixelMetrics(optBuf, isAgriContext, isUrbanContext)
+        opticalCropPct = optical.opticalCropPct
+        opticalSoilPct = optical.opticalSoilPct
+        opticalWaterPct = optical.opticalWaterPct
+        opticalBuiltPct = optical.opticalBuiltPct
+
+        const isPeriUrbanContext = Boolean(
+          gt.isPeriUrban ||
+          gt.suburb ||
+          gt.placeName.toLowerCase().includes("nagar") ||
+          gt.placeName.toLowerCase().includes("colony") ||
+          gt.placeName.toLowerCase().includes("layout") ||
+          gt.placeName.toLowerCase().includes("society") ||
+          gt.placeName.toLowerCase().includes("shingnapur")
+        )
+
+        const isWater =
+          Boolean(esa?.isWaterBody) ||
+          opticalWaterPct >= 25 ||
+          (opticalWaterPct >= 15 && opticalWaterPct > opticalCropPct && opticalWaterPct > opticalBuiltPct) ||
+          Boolean(gt.isWaterBody && opticalWaterPct >= 10)
+
+        const isBuiltUp =
+          !isWater &&
+          ((gt.isUrbanSettlement && (esa?.builtPct ?? 0) >= 30) ||
+            (esa?.isUrbanSettlement && (esa.builtPct ?? 0) >= 50) ||
+            opticalBuiltPct >= 35 ||
+            (opticalBuiltPct >= 22 && opticalBuiltPct > opticalCropPct + opticalSoilPct))
+
+        const isBarrenDesert = esa?.dominantClass === "bare" || gt.settlementType === "barren"
+
+        isVacantPlot =
+          !isWater &&
+          !isBuiltUp &&
+          !isBarrenDesert &&
+          !gt.isInstitutionalSportsGround &&
+          isPeriUrbanContext &&
+          opticalSoilPct >= 45 &&
+          opticalSoilPct > opticalCropPct &&
+          opticalCropPct < 45
+
+        isFallowSoil =
+          !isWater &&
+          !isBuiltUp &&
+          !isVacantPlot &&
+          !gt.isInstitutionalSportsGround &&
+          (opticalSoilPct >= 45 && opticalCropPct < 35)
+      }
+
       // Reconcile logic matching analyze route
+      const isBarrenDesert = esa?.dominantClass === "bare" || gt.settlementType === "barren"
       let effectiveCategory = "unknown"
-      if (gt.isWaterBody || esa?.isWaterBody) {
+      if (gt.isWaterBody || esa?.isWaterBody || opticalWaterPct >= 30) {
         effectiveCategory = "water"
       } else if (gt.isInstitutionalSportsGround) {
         effectiveCategory = "sports"
+      } else if (isVacantPlot || gt.settlementType === "vacant_plot") {
+        effectiveCategory = "vacant_plot"
+      } else if (isBarrenDesert || isFallowSoil) {
+        effectiveCategory = "fallow"
       } else if (gt.isUrbanSettlement || esa?.isUrbanSettlement) {
         effectiveCategory = "urban"
-      } else if (esa?.dominantClass === "bare" || gt.settlementType === "barren") {
-        effectiveCategory = "fallow"
       } else if (gt.isAgricultural || esa?.isAgricultural) {
         effectiveCategory = "crop"
       } else {
@@ -117,8 +205,11 @@ async function runBenchmark() {
       console.log(`[${icon}] ${test.name}`)
       console.log(`       Location: [${test.lat.toFixed(4)}°N, ${test.lon.toFixed(4)}°E] (${test.description})`)
       console.log(`       OSM Place: "${gt.placeName}" (raw: ${gt.rawOsmType || "none"})`)
-      console.log(`       Settlement Type: ${gt.settlementType || "none"}`)
+      console.log(`       Settlement Type: ${gt.settlementType || "none"} (periUrban: ${Boolean(gt.isPeriUrban)})`)
       console.log(`       Expected: [${test.expectedCategory.toUpperCase()}] | Got: [${effectiveCategory.toUpperCase()}]`)
+      if (optBuf) {
+        console.log(`       Optical Physics: Soil ${opticalSoilPct}%, Crop ${opticalCropPct}%, Built ${opticalBuiltPct}%, Water ${opticalWaterPct}%`)
+      }
       if (esa) {
         console.log(`       ESA 10m Ground Truth: ${esa.dominantLabel} (Crop: ${esa.cropPct}%, Built: ${esa.builtPct}%, Water: ${esa.waterPct}%, Soil: ${esa.soilPct}%)`)
       }

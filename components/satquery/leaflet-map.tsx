@@ -854,9 +854,21 @@ export function LeafletMap({
               labelLower.includes("ऊसर") ||
               labelLower.includes("silt flat") ||
               labelLower.includes("sand"))
+          const isVacant =
+            !isStructure &&
+            !isBarren &&
+            (labelLower.includes("vacant") ||
+              labelLower.includes("plot") ||
+              labelLower.includes("layout") ||
+              labelLower.includes("clearing") ||
+              labelLower.includes("unpaved") ||
+              labelLower.includes("open ground") ||
+              labelLower.includes("भूखंड") ||
+              labelLower.includes("प्लॉट"))
           const isFallow =
             !isStructure &&
             !isBarren &&
+            !isVacant &&
             (labelLower.includes("fallow") ||
               labelLower.includes("tilled") ||
               labelLower.includes("soil") ||
@@ -869,6 +881,7 @@ export function LeafletMap({
           const isVeg =
             !isStructure &&
             !isFallow &&
+            !isVacant &&
             !isBarren &&
             (labelLower.includes("crop") ||
               labelLower.includes("vegetat") ||
@@ -891,8 +904,10 @@ export function LeafletMap({
             ? "#f97316"
             : isBarren
             ? "#eab308"
-            : isFallow
+            : isVacant
             ? "#d97706"
+            : isFallow
+            ? "#f59e0b"
             : isVeg
             ? "#16a34a"
             : "#f59e0b"
@@ -904,8 +919,10 @@ export function LeafletMap({
             ? "#fb923c"
             : isBarren
             ? "#fef08a"
-            : isFallow
+            : isVacant
             ? "#f59e0b"
+            : isFallow
+            ? "#fbbf24"
             : isVeg
             ? "#4ade80"
             : "#fbbf24"
@@ -917,6 +934,8 @@ export function LeafletMap({
             ? "border-orange-500 text-orange-200"
             : isBarren
             ? "border-yellow-500 text-yellow-300"
+            : isVacant
+            ? "border-amber-500 text-amber-300"
             : isFallow
             ? "border-amber-500 text-amber-300"
             : isVeg
@@ -930,6 +949,8 @@ export function LeafletMap({
             ? "🏠 "
             : isBarren
             ? "🏜️ "
+            : isVacant
+            ? "🏗️ "
             : isFallow
             ? "🚜 "
             : isVeg
