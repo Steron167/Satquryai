@@ -7,7 +7,8 @@
     "build:css": "node scripts/build-css.js",
     "dev": "node scripts/patch-leaflet.js && node scripts/build-css.js && next dev",
     "build": "node scripts/patch-leaflet.js && node scripts/build-css.js && next build",
-    "start": "next start"
+    "start": "next start",
+    "benchmark": "npx tsx scripts/benchmark_locations.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

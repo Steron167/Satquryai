@@ -106,7 +106,10 @@ export async function fetchESAWorldCover(
     // 95: Mangroves
     // 100: Moss and lichen
     const waterPixels = (counts[80] || 0) + (counts[90] || 0)
-    const cropPixels = (counts[40] || 0) + (counts[30] || 0) + (counts[20] || 0)
+    const actualCropPixels = counts[40] || 0
+    const shrubPixels = counts[20] || 0
+    const grassPixels = counts[30] || 0
+    const cropPixels = actualCropPixels + grassPixels + shrubPixels
     const builtPixels = counts[50] || 0
     const treePixels = (counts[10] || 0) + (counts[95] || 0)
     const barePixels = counts[60] || 0
@@ -131,7 +134,15 @@ export async function fetchESAWorldCover(
 
     const isWaterBody = waterPct >= 20 || (waterPct >= 12 && waterPct > cropPct && waterPct > builtPct)
     const isUrbanSettlement = !isWaterBody && (builtPct >= 35 || (builtPct >= 22 && builtPct > cropPct + soilPct))
-    const isAgricultural = !isWaterBody && !isUrbanSettlement && (cropPct >= 20 || (cropPct + soilPct >= 35))
+    const isBarrenTerrain =
+      !isWaterBody &&
+      !isUrbanSettlement &&
+      (barePct >= 45 && (actualCropPixels / totalValid) < 0.25)
+    const isAgricultural =
+      !isWaterBody &&
+      !isUrbanSettlement &&
+      !isBarrenTerrain &&
+      (cropPct >= 25 || (cropPct >= 15 && actualCropPixels > 0))
 
     let dominantClass: ESAWorldCoverResult["dominantClass"] = "bare"
     let dominantLabel = "Open / Bare Silt Terrain"
@@ -142,6 +153,9 @@ export async function fetchESAWorldCover(
     } else if (isUrbanSettlement) {
       dominantClass = "builtup"
       dominantLabel = "Built-up Infrastructure & Settlement"
+    } else if (isBarrenTerrain) {
+      dominantClass = "bare"
+      dominantLabel = "Barren Land / Open Bare Soil & Arid Terrain"
     } else if (isAgricultural) {
       dominantClass = "cropland"
       dominantLabel = "Agricultural Cropland / Cultivated Fields"
@@ -154,6 +168,8 @@ export async function fetchESAWorldCover(
       ? `ESA WorldCover 10m observation confirms this parcel is predominantly a Surface Water Body / River Channel (${waterPct}% water coverage, ${builtPct}% riverbank/built-up, ${cropPct}% riparian vegetation).`
       : isUrbanSettlement
       ? `ESA WorldCover 10m observation confirms this parcel is predominantly Built-up Infrastructure & Settlement (${builtPct}% built-up structures, ${treePct}% urban canopy, ${waterPct}% drainage).`
+      : isBarrenTerrain
+      ? `ESA WorldCover 10m observation confirms this parcel is predominantly Barren Land / Arid Terrain (${soilPct}% bare soil/rock, ${cropPct}% sparse scrub, ${builtPct}% built-up).`
       : isAgricultural
       ? `ESA WorldCover 10m observation confirms this parcel is active Agricultural Cropland (${cropPct}% cultivated cropland, ${treePct}% canopy, ${soilPct}% fallow soil).`
       : `ESA WorldCover 10m observation indicates ${dominantLabel} (${soilPct}% bare soil, ${builtPct}% built-up, ${waterPct}% water).`

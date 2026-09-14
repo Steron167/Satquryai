@@ -2,6 +2,7 @@ export interface GroundTruthResult {
   isUrbanSettlement: boolean
   isAgricultural: boolean
   isWaterBody: boolean
+  isInstitutionalSportsGround?: boolean
   placeName: string
   settlementType?: string
   suburb?: string
@@ -89,7 +90,9 @@ export async function fetchGroundTruth(
       displayName.toLowerCase().includes("drainage") ||
       displayName.toLowerCase().includes("stream") ||
       displayName.toLowerCase().includes("bandhara") ||
-      displayName.toLowerCase().includes("barrage")
+      displayName.toLowerCase().includes("barrage") ||
+      displayName.toLowerCase().includes("ghat") ||
+      displayName.includes("घाट")
 
     const isBridge =
       osmType === "bridge" ||
@@ -119,12 +122,58 @@ export async function fetchGroundTruth(
       isWaterwayName ||
       (isGodavariRiverCorridor && isBridge)
 
+    // Check for explicit educational campus, sports facilities, stadiums, pitches, playgrounds, parks
+    const isInstitutionalSportsGround =
+      !isWaterBody &&
+      (osmClass === "leisure" ||
+        osmClass === "sport" ||
+        Boolean(address.leisure) ||
+        Boolean(address.sport) ||
+        ["pitch", "track", "sports_centre", "stadium", "playground", "park", "golf_course", "recreation_ground", "sports_hall"].includes(osmType) ||
+        (osmClass === "amenity" && ["college", "school", "university", "gym", "sports_centre"].includes(osmType)) ||
+        displayName.toLowerCase().includes("college") ||
+        displayName.toLowerCase().includes("gym") ||
+        displayName.toLowerCase().includes("stadium") ||
+        displayName.toLowerCase().includes("sports") ||
+        displayName.toLowerCase().includes("playground") ||
+        displayName.toLowerCase().includes("ground") ||
+        displayName.toLowerCase().includes("maidan") ||
+        displayName.toLowerCase().includes("krida") ||
+        displayName.toLowerCase().includes("khel") ||
+        displayName.toLowerCase().includes("cricket") ||
+        displayName.toLowerCase().includes("football") ||
+        displayName.toLowerCase().includes("campus") ||
+        placeName.toLowerCase().includes("college") ||
+        placeName.toLowerCase().includes("gym") ||
+        placeName.toLowerCase().includes("stadium") ||
+        placeName.toLowerCase().includes("ground") ||
+        placeName.toLowerCase().includes("pitch"))
+
+    const sportsFacilityName =
+      (data.name && data.name.trim()) ||
+      address.leisure ||
+      address.sport ||
+      address.amenity ||
+      (osmType === "pitch"
+        ? "Sports Ground / Athletic Pitch"
+        : osmType === "track"
+        ? "Running Track / Athletic Arena"
+        : osmType === "stadium"
+        ? "Sports Stadium"
+        : osmType === "playground"
+        ? "Public Playground"
+        : "Sports Ground & Campus Facility")
+
     const resolvedPlaceName = isWaterBody
       ? isGodavariRiverCorridor
         ? "Godavari River (Kopargaon Corridor)"
         : isWaterwayName
         ? displayName.split(",")[0].trim() || "River / Water Channel"
         : "River / Water Channel"
+      : isInstitutionalSportsGround
+      ? (data.name || displayName.toLowerCase().includes("college") || displayName.toLowerCase().includes("gym") || displayName.toLowerCase().includes("stadium"))
+        ? placeName
+        : `${sportsFacilityName}, ${town || suburb || "Regional Area"}`
       : placeName
 
     // Check for explicit physical building structures or public amenities
@@ -174,16 +223,19 @@ export async function fetchGroundTruth(
           osmType === "neighbourhood")
     )
 
-    // An area is classified as urban settlement if it has explicit buildings, urban landuse, or is a named urban residential colony in town
+    // An area is classified as urban settlement if it has explicit buildings, urban landuse, or is a named urban residential colony in town (and not a dedicated sports/campus ground)
     const isUrbanSettlement =
       !isWaterBody &&
+      !isInstitutionalSportsGround &&
       !isOsmAgriculture &&
       (isBuilding || isLanduseUrban || isNamedUrbanColony)
 
-    const isAgricultural = !isWaterBody && !isUrbanSettlement
+    const isAgricultural = !isWaterBody && !isUrbanSettlement && !isInstitutionalSportsGround
 
     const summary = isWaterBody
       ? `Surface water body and river drainage channel (${resolvedPlaceName})`
+      : isInstitutionalSportsGround
+      ? `Institutional sports ground and educational campus facility (${resolvedPlaceName})`
       : isUrbanSettlement
       ? `Built-up Settlement (${resolvedPlaceName || town || "Settlement"}) with structures and local infrastructure`
       : `Active agricultural cropland and cultivated rural parcel in ${resolvedPlaceName}`
@@ -192,12 +244,19 @@ export async function fetchGroundTruth(
       isUrbanSettlement,
       isAgricultural,
       isWaterBody,
+      isInstitutionalSportsGround,
       placeName: resolvedPlaceName,
-      settlementType: isWaterBody ? "waterbody" : isUrbanSettlement ? "urban_settlement" : "farmland",
+      settlementType: isWaterBody
+        ? "waterbody"
+        : isInstitutionalSportsGround
+        ? "institutional_sports"
+        : isUrbanSettlement
+        ? "urban_settlement"
+        : "farmland",
       suburb,
       town,
       rawOsmType: `${osmClass}:${osmType}`,
-      confidence: isWaterBody ? 0.98 : isUrbanSettlement ? 0.94 : 0.92,
+      confidence: isWaterBody ? 0.98 : isInstitutionalSportsGround ? 0.95 : isUrbanSettlement ? 0.94 : 0.92,
       summary,
     }
   } catch (err) {
