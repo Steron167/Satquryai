@@ -15,8 +15,6 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
-  Crosshair,
-  Columns,
 } from "lucide-react"
 import { SCENES, LAYERS, type SceneMeta, type LayerId } from "@/lib/satquery-data"
 import type { ViewerState, SelectedArea } from "./types"
@@ -66,18 +64,10 @@ export function ImageViewer({
   const [toolMode, setToolMode] = useState<"navigate" | "select">("navigate")
   const [showLabels, setShowLabels] = useState(true)
   const [currentZoom, setCurrentZoom] = useState(13)
-  const [snapToKhasra, setSnapToKhasra] = useState(false)
-  const [compareMode, setCompareMode] = useState(state.compare ?? false)
   const [mapAction, setMapAction] = useState<{
     type: "zoomIn" | "zoomOut" | "recenter"
     id: number
   } | null>(null)
-
-  useEffect(() => {
-    if (state.compare !== undefined) {
-      setCompareMode(state.compare)
-    }
-  }, [state.compare])
 
   // Location search states
   const [searchQuery, setSearchQuery] = useState("")
@@ -326,36 +316,6 @@ export function ImageViewer({
             <span className="hidden md:inline">{showLabels ? "Labels ON" : "Labels OFF"}</span>
           </button>
 
-          {/* Cadastral Khasra Boundary Snapping Toggle */}
-          <button
-            type="button"
-            onClick={() => setSnapToKhasra((prev) => !prev)}
-            className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-semibold transition-all cursor-pointer ${
-              snapToKhasra
-                ? "border-amber-500/60 bg-amber-500/20 text-amber-300 ring-1 ring-amber-400/50 shadow-sm font-bold"
-                : "border-border bg-card text-muted-foreground hover:text-foreground"
-            }`}
-            title="Snap AOI to Official Cadastral Agricultural Plots (खसरा सीमा ऑटो-स्नैप)"
-          >
-            <Crosshair className="size-3.5 text-amber-400" />
-            <span className="hidden md:inline">खसरा Snap</span>
-          </button>
-
-          {/* Before vs. After Split Slider Mode Toggle */}
-          <button
-            type="button"
-            onClick={() => setCompareMode((prev) => !prev)}
-            className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-semibold transition-all cursor-pointer ${
-              compareMode
-                ? "border-cyan-500/60 bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-400/50 shadow-sm font-bold"
-                : "border-border bg-card text-muted-foreground hover:text-foreground"
-            }`}
-            title="Toggle Before vs. After Disaster Comparison Slider (आपदा पूर्व/पश्चात तुलना)"
-          >
-            <Columns className="size-3.5 text-cyan-400" />
-            <span className="hidden md:inline">तुलना Slider</span>
-          </button>
-
           {/* Zoom Controls */}
           <div className="flex items-center gap-1 border-l border-border pl-1.5">
             <button
@@ -409,10 +369,6 @@ export function ImageViewer({
           onToggleLeftPanel={onToggleLeftPanel}
           onToggleFlood={onToggleFlood}
           onClearAllMarkings={onClearAllMarkings}
-          snapToKhasra={snapToKhasra}
-          onToggleSnapToKhasra={() => setSnapToKhasra((prev) => !prev)}
-          compareMode={compareMode}
-          onToggleCompareMode={() => setCompareMode((prev) => !prev)}
         />
       </div>
     </div>

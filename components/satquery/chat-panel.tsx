@@ -15,12 +15,10 @@ import {
   MicOff,
   Volume2,
   VolumeX,
-  Share2,
 } from "lucide-react"
 import { SAMPLE_QUERIES, SCENES } from "@/lib/satquery-data"
 import { ResponseCard } from "./response-card"
 import { VoiceService } from "@/lib/voice-service"
-import { WhatsappAdvisoryModal } from "./whatsapp-advisory-modal"
 import type { ChatMessage, SelectedArea } from "./types"
 
 interface ChatPanelProps {
@@ -51,7 +49,6 @@ export function ChatPanel({
   const [speechLang, setSpeechLang] = useState<"hi-IN" | "en-IN">("hi-IN")
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [activeSpeakingId, setActiveSpeakingId] = useState<string | null>(null)
-  const [selectedAdvisoryMessage, setSelectedAdvisoryMessage] = useState<ChatMessage | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stopListeningRef = useRef<(() => void) | null>(null)
 
@@ -168,11 +165,11 @@ export function ChatPanel({
   return (
     <section className="flex h-full w-full flex-col border-l border-border bg-sidebar select-none">
       {/* Panel Header */}
-      <div className="border-b border-border px-3.5 py-2.5 bg-sidebar shrink-0">
+      <div className="border-b border-border px-2.5 sm:px-3.5 py-1.5 sm:py-2.5 bg-sidebar shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="flex size-7 items-center justify-center rounded-full bg-primary/15 text-primary">
-              <Sparkles className="size-3.5" aria-hidden="true" />
+            <div className="flex size-6 sm:size-7 items-center justify-center rounded-full bg-primary/15 text-primary">
+              <Sparkles className="size-3 sm:size-3.5" aria-hidden="true" />
             </div>
             <div>
               <div className="flex items-center gap-1.5">
@@ -181,7 +178,7 @@ export function ChatPanel({
                   Bilingual Voice
                 </span>
               </div>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="hidden sm:block text-[10px] text-muted-foreground">
                 बोलकर या लिखकर पूछें · Hindi & English
               </p>
             </div>
@@ -212,10 +209,10 @@ export function ChatPanel({
       </div>
 
       {/* Messages Feed */}
-      <div ref={scrollRef} className="flex-1 space-y-3.5 overflow-y-auto p-3 sm:p-4 min-h-0">
+      <div ref={scrollRef} className="flex-1 space-y-2.5 sm:space-y-3.5 overflow-y-auto p-2 sm:p-4 min-h-0">
         {messages.map((m) => (
           <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-            <div className={`flex max-w-[94%] sm:max-w-[90%] gap-2 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
+            <div className={`flex max-w-[98%] sm:max-w-[90%] gap-1.5 sm:gap-2 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
               <div
                 className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md shadow-sm ${
                   m.role === "user" ? "bg-secondary text-foreground" : "bg-primary/20 text-primary"
@@ -228,7 +225,7 @@ export function ChatPanel({
                 )}
               </div>
               <div
-                className={`rounded-xl px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed shadow-sm ${
+                className={`rounded-xl px-3 py-2 sm:px-3.5 sm:py-2.5 text-xs sm:text-sm leading-relaxed shadow-sm ${
                   m.role === "user"
                     ? "bg-primary text-primary-foreground font-medium"
                     : "border border-border bg-card text-card-foreground"
@@ -244,12 +241,12 @@ export function ChatPanel({
 
                 {/* Speaker Audio Listen Button & Grounding Badges for Assistant */}
                 {m.role === "assistant" && (
-                  <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/40">
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 pt-1.5 border-t border-border/40">
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => handleSpeakMessage(m.id || "msg", m.text)}
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer ${
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-[11px] font-medium transition-all cursor-pointer ${
                           activeSpeakingId === (m.id || "msg")
                             ? "bg-amber-500 text-slate-950 font-bold animate-pulse shadow-sm"
                             : "bg-secondary/90 text-foreground hover:bg-primary/15 hover:text-primary border border-border"
@@ -258,25 +255,15 @@ export function ChatPanel({
                       >
                         {activeSpeakingId === (m.id || "msg") ? (
                           <>
-                            <VolumeX className="size-3.5" />
-                            <span>बोलना रोकें (Stop)</span>
+                            <VolumeX className="size-3 sm:size-3.5" />
+                            <span>रोकें (Stop)</span>
                           </>
                         ) : (
                           <>
-                            <Volume2 className="size-3.5 text-primary" />
+                            <Volume2 className="size-3 sm:size-3.5 text-primary" />
                             <span>🔊 सुनें (Listen)</span>
                           </>
                         )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAdvisoryMessage(m)}
-                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all cursor-pointer active:scale-95 shadow-sm"
-                        title="Send Official Rural WhatsApp Advisory & Voice Note to Farmer"
-                      >
-                        <Share2 className="size-3 text-emerald-400" />
-                        <span>📲 WhatsApp सलाह</span>
                       </button>
                     </div>
 
@@ -360,9 +347,9 @@ export function ChatPanel({
         )}
       </div>
 
-      {/* Suggested Queries */}
-      <div className="border-t border-border px-3.5 pt-2.5 pb-1 bg-sidebar shrink-0">
-        <div className="flex items-center justify-between mb-1">
+      {/* Suggested Queries - Horizontal scrollable single-line on mobile to save vertical answer space */}
+      <div className="border-t border-border px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-sidebar shrink-0">
+        <div className="hidden sm:flex items-center justify-between mb-1">
           <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
             🌾 किसान त्वरित सवाल (Quick Queries)
           </p>
@@ -370,14 +357,14 @@ export function ChatPanel({
             {SCENES[activeSceneId]?.name || "Scene Context"}
           </span>
         </div>
-        <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pb-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none [&::-webkit-scrollbar]:hidden py-0.5 scroll-smooth">
           {suggestions.map((label, idx) => (
             <button
               key={idx}
               type="button"
               disabled={isThinking}
               onClick={() => onSend(label)}
-              className="rounded-full border border-border bg-card px-2.5 py-0.5 text-left text-[11px] text-muted-foreground transition-all hover:border-primary/50 hover:text-foreground hover:bg-accent/5 disabled:opacity-50 cursor-pointer"
+              className="shrink-0 whitespace-nowrap rounded-full border border-border bg-card px-2.5 py-1 text-left text-[11px] text-muted-foreground transition-all hover:border-primary/50 hover:text-foreground hover:bg-accent/5 disabled:opacity-50 cursor-pointer"
             >
               {label}
             </button>
@@ -387,7 +374,7 @@ export function ChatPanel({
 
       {/* Area Focus Active Banner */}
       {activeAOI && (
-        <div className="mx-3.5 mt-1 -mb-1 flex items-center justify-between rounded-lg border border-cyan-500/40 bg-cyan-950/50 p-2 text-xs text-cyan-200 backdrop-blur-md shadow-sm animate-in fade-in shrink-0">
+        <div className="mx-2.5 sm:mx-3.5 mt-1 -mb-1 flex items-center justify-between rounded-lg border border-cyan-500/40 bg-cyan-950/50 p-2 text-xs text-cyan-200 backdrop-blur-md shadow-sm animate-in fade-in shrink-0">
           <div className="flex items-center gap-2">
             <span className="size-2 rounded-full bg-cyan-400 animate-ping" />
             <div className="leading-tight">
@@ -411,7 +398,7 @@ export function ChatPanel({
 
       {/* Active Voice Listening Banner */}
       {isListening && (
-        <div className="mx-3.5 mt-2 flex items-center justify-between gap-2 rounded-lg bg-red-500/20 border border-red-500/50 px-3 py-1.5 text-xs text-red-200 animate-pulse shadow-lg shrink-0">
+        <div className="mx-2.5 sm:mx-3.5 mt-1.5 flex items-center justify-between gap-2 rounded-lg bg-red-500/20 border border-red-500/50 px-3 py-1.5 text-xs text-red-200 animate-pulse shadow-lg shrink-0">
           <div className="flex items-center gap-2">
             <span className="size-2.5 rounded-full bg-red-500 animate-ping" />
             <span className="font-bold">
@@ -429,14 +416,14 @@ export function ChatPanel({
       )}
 
       {voiceError && (
-        <div className="mx-3.5 mt-1 text-[11px] text-red-400 bg-red-950/40 border border-red-800/40 rounded px-2.5 py-1">
+        <div className="mx-2.5 sm:mx-3.5 mt-1 text-[11px] text-red-400 bg-red-950/40 border border-red-800/40 rounded px-2.5 py-1">
           {voiceError}
         </div>
       )}
 
       {/* Query Input Box with Microphone and Language Toggle */}
-      <div className="p-3 sm:p-4 bg-sidebar shrink-0">
-        <div className="flex items-end gap-1.5 sm:gap-2 rounded-xl border border-border bg-card p-1.5 sm:p-2 shadow-sm focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/50 transition-all">
+      <div className="p-2 sm:p-4 bg-sidebar shrink-0">
+        <div className="flex items-end gap-1.5 sm:gap-2 rounded-xl border border-border bg-card p-1 sm:p-2 shadow-sm focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/50 transition-all">
           {/* Language Toggle Button */}
           <button
             type="button"
@@ -492,13 +479,6 @@ export function ChatPanel({
           </button>
         </div>
       </div>
-
-      <WhatsappAdvisoryModal
-        isOpen={Boolean(selectedAdvisoryMessage)}
-        onClose={() => setSelectedAdvisoryMessage(null)}
-        scene={SCENES[activeSceneId] || SCENES["godavari"]}
-        message={selectedAdvisoryMessage}
-      />
     </section>
   )
 }

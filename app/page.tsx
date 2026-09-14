@@ -554,7 +554,7 @@ export default function Page() {
           setIsLeftPanelOpen((prev) => !prev)
           setMobileTab("places")
         }}
-        onOpenChat={() => setMobileTab("chat")}
+        onOpenChat={mobileTab !== "chat" ? () => setMobileTab("chat") : undefined}
       />
 
       {/* Main Workspace */}
@@ -872,12 +872,12 @@ export default function Page() {
           </div>
 
           {/* Fixed Farmer Mobile Bottom Navigation Bar */}
-          <nav className="h-16 shrink-0 bg-sidebar/95 backdrop-blur-lg border-t border-border shadow-2xl flex items-center justify-around px-2 z-40">
+          <nav className="h-14 sm:h-16 shrink-0 bg-sidebar/95 backdrop-blur-lg border-t border-border shadow-2xl flex items-center justify-around px-2 z-40">
             {/* Tab 1: 🗺️ Map */}
             <button
               type="button"
               onClick={() => setMobileTab("map")}
-              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl transition-all cursor-pointer ${
+              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-all cursor-pointer ${
                 mobileTab === "map"
                   ? "text-primary font-bold bg-primary/15"
                   : "text-muted-foreground hover:text-foreground"
