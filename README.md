@@ -27,7 +27,7 @@ By fusing **Sentinel-1 C-band Synthetic Aperture Radar (SAR)** with **Sentinel-2
 
 ### 1. 🗺️ Google Maps-Style Dynamic Slippy Map Engine
 - **Sub-Meter Continuous Sharpness (Zoom 2 to 20)**: Powered by ESRI World Imagery XYZ multi-resolution tile pyramids. Zooming in never gets blurry or pixelated.
-- **Google Maps-Style Hybrid Labels**: Integrated CartoDB Voyager reference labels and ESRI transportation highway networks displaying sharp street, town, and city names.
+- **Google Maps-Style Hybrid Labels**: Integrated ESRI World Boundaries & Places reference labels and ESRI transportation highway networks displaying sharp street, town, and city names with no API key or watermarks.
 - **Labels Toggle**: One-click toggle between pure satellite view and hybrid labeled view.
 - **Global Search**: Search any location worldwide (e.g. *Kopargaon, Shirdi, Pune, Bhadla Solar Park*) with live autocomplete, recent search history, and instant fly-to.
 
@@ -55,7 +55,7 @@ By fusing **Sentinel-1 C-band Synthetic Aperture Radar (SAR)** with **Sentinel-2
 - **Framework**: [Next.js 16 (App Router + Turbopack)](https://nextjs.org/)
 - **Language**: [TypeScript](https://www.typescriptlang.org/)
 - **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
-- **Mapping Engine**: [Leaflet](https://leafletjs.com/) with ESRI World Imagery & CartoDB Voyager tiles
+- **Mapping Engine**: [Leaflet](https://leafletjs.com/) with ESRI World Imagery & ESRI World Boundaries and Places tiles
 - **Vision-Language Model**: [Google Gemini 3.5 Flash](https://ai.google.dev/) via `@google/genai`
 - **Ground Truth Search**: [Tavily Search API](https://tavily.com/)
 - **Image Processing**: [Sharp](https://sharp.pixelplumbing.com/)

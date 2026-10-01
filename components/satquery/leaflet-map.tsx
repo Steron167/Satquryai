@@ -419,11 +419,10 @@ export function LeafletMap({
     ).addTo(map)
     baseTileRef.current = baseTiles
 
-    // Google Maps-Style Hybrid Labels (CartoDB Voyager)
+    // Google Maps-Style Hybrid Reference Labels (ESRI World Boundaries & Places - Free, No Watermark)
     const labels = L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png",
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
       {
-        subdomains: "abcd",
         maxZoom: 18,
         pane: "labelsPane",
         opacity: 1,
